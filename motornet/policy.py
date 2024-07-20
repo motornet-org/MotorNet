@@ -51,11 +51,13 @@ class ModularPolicyGRU(nn.Module):
                  vision_dim: list, proprio_dim: list, task_dim: list,
                  connectivity_delay: np.ndarray, spectral_scaling=None,
                  proportion_excitatory=None, input_gain=1.,
-                 device=th.device("cpu"), random_seed=None, activation='tanh'):
+                 device=th.device("cpu"), random_seed=None, activation='tanh', output_delay=0,
+                 cancelation_matrix=None):
         super(ModularPolicyGRU, self).__init__()
 
         # Store class info
         hidden_size = sum(module_size)
+        self.outfun = lambda hidden: th.min(th.ones_like(hidden), th.relu(hidden))
         assert activation == 'tanh' or activation == 'rect_tanh'
         if activation == 'tanh':
             self.activation = lambda hidden: th.tanh(hidden)
@@ -71,8 +73,17 @@ class ModularPolicyGRU(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.connectivity_delay = connectivity_delay
-        self.max_delay = np.max(connectivity_delay)
+        self.output_delay = output_delay
+        self.max_connectivity_delay = np.max(connectivity_delay)
+        self.max_delay = np.max([self.max_connectivity_delay, self.output_delay]).astype(np.integer)
         self.h_buffer = []
+        self.counter = 0
+        self.cancel_times = None
+
+        if cancelation_matrix is None:
+            self.cancelation_matrix = cancelation_matrix
+        else:
+            self.cancelation_matrix = th.tensor(cancelation_matrix, dtype=th.float32)
 
         # Set the random seed
         if random_seed:
@@ -108,7 +119,7 @@ class ModularPolicyGRU(nn.Module):
 
         # Initialize all output parameters
         self.Y = nn.Parameter(nn.init.xavier_uniform_(th.Tensor(output_size, hidden_size), gain=1))
-        self.bY = nn.Parameter(nn.init.constant_(th.Tensor(output_size), -5.))
+        self.bY = nn.Parameter(nn.init.constant_(th.Tensor(output_size), -3.)) #-6
 
         # Create indices for indexing modules
         module_dims = []
@@ -147,6 +158,8 @@ class ModularPolicyGRU(nn.Module):
                     h_probability_mask[i, j] = proprio_mask[i_module]
                 elif module_type == 'task':
                     h_probability_mask[i, j] = task_mask[i_module]
+                    if j == task_dim[-1]:
+                        h_probability_mask[i, j] = proprio_mask[i_module]
 
         # Create sparsity mask for output
         y_probability_mask = np.zeros((output_size, hidden_size), dtype=np.float32)
@@ -245,13 +258,29 @@ class ModularPolicyGRU(nn.Module):
 
         self.to(device)
 
+    def set_cancelation_matrix(self, cancelation_matrix):
+        self.cancelation_matrix = th.tensor(cancelation_matrix, dtype=th.float32)
+
+    def reset_counter(self):
+        self.counter = 0
+
+    def set_cancel_times(self, times):
+        self.cancel_times = times
+
+    @th.compile(mode='max-autotune')
+    def update_buffer(self, h_buffer, h_prev):
+        # Create a new tensor by concatenating h_prev (reshaped appropriately) with the older values
+        # Skip the last value to maintain the buffer size
+        new_h_buffer = th.cat((h_prev.unsqueeze(-1), h_buffer[:, :, :-1]), dim=-1)
+        return new_h_buffer
+
     @th.compile(mode='max-autotune')
     def forward(self, x, h_prev):
-        # If there are delays between modules we need to go module-by-module (this is slow)
-        if self.max_delay > 0:
-            # Update hidden state buffer
-            self.h_buffer[:, :, 1:] = self.h_buffer[:, :, 0:-1]
-            self.h_buffer[:, :, 0] = h_prev
+        # Update hidden state buffer
+        self.h_buffer = self.update_buffer(self.h_buffer, h_prev)
+
+        # If there are delays between modules we need to go module-by-module (this is slower)
+        if self.max_connectivity_delay > 0:
             # Forward pass
             h_new = th.zeros_like(h_prev)
             for i in range(self.num_modules):
@@ -277,19 +306,26 @@ class ModularPolicyGRU(nn.Module):
             z = th.sigmoid(F.linear(concat, self.Wz, self.bz))
             r = th.sigmoid(F.linear(concat, self.Wr, self.br))
             concat_hidden = th.cat((x, r * h_prev), dim=1)
-            h_tilda = self.activation(F.linear(concat_hidden, self.Wh, self.bh)  + (th.randn(self.Wh.shape[0]) * 1e-3))
+            h_tilda = self.activation(F.linear(concat_hidden, self.Wh, self.bh) + (th.randn(self.Wh.shape[0]) * 1e-3))
             h_new = (1 - z) * h_prev + z * h_tilda
 
+        if self.cancelation_matrix is not None and self.counter in self.cancel_times:
+            print('cancelling')
+            h_new += h_new @ self.cancelation_matrix
+
         # Output layer
-        y = th.sigmoid(F.linear(h_new, self.Y, self.bY))
+        if self.output_delay == 0:
+            y = th.sigmoid(F.linear(h_new, self.Y, self.bY))
+        else:
+            y = th.sigmoid(F.linear(self.h_buffer[:, :, self.output_delay-1], self.Y, self.bY))
+        self.counter += 1
         return y, h_new
 
     def init_hidden(self, batch_size):
         # Tile learnable hidden state
         h0 = th.tile(self.activation(self.h0), (batch_size, 1))
-        # Create initial hidden state buffer if needed
-        if self.max_delay > 0:
-            self.h_buffer = th.tile(h0.unsqueeze(dim=2), (1, 1, self.max_delay+1))
+        # Create initial hidden state buffer
+        self.h_buffer = th.tile(h0.unsqueeze(dim=2), (1, 1, self.max_delay+1))
         return h0
 
     def cache_policy(self):

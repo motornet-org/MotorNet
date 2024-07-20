@@ -1,0 +1,408 @@
+Index: motornet/tasks.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import copy\nimport numpy as np\nimport tensorflow as tf\nfrom tensorflow.keras.layers import Input\nfrom abc import abstractmethod\nfrom motornet.nets.losses import PositionLoss, L2xDxActivationLoss, L2xDxRegularizer, CompoundedLoss\nfrom copy import deepcopy\n\n\nclass Task(tf.keras.utils.Sequence):\n    \"\"\"\n    Base class for tasks.\n    \"\"\"\n    def __init__(self, network, initial_joint_state=None, **kwargs):\n        self.__name__ = 'Generic Task'\n        self.network = network\n        self.training_iterations = 1000\n        self.training_batch_size = 32\n        self.training_n_timesteps = 100\n        self.delay_range = [0, 0]\n        self.do_recompute_targets = False\n        self.kwargs = kwargs\n        self.losses = {name: None for name in self.network.output_names}\n        self.loss_names = {name: name for name in self.network.output_names}\n        self.loss_weights = {name: 0. for name in self.network.output_names}\n        self._losses = {name: [] for name in self.network.output_names}\n        self._loss_names = {name: [] for name in self.network.output_names}\n        self._loss_weights = {name: [] for name in self.network.output_names}\n\n        if initial_joint_state is not None:\n            initial_joint_state = np.array(initial_joint_state)\n            if len(initial_joint_state.shape) == 1:\n                initial_joint_state = initial_joint_state.reshape(1, -1)\n            self.n_initial_joint_states = initial_joint_state.shape[0]\n            self.initial_joint_state_original = initial_joint_state.tolist()\n        else:\n            self.initial_joint_state_original = None\n            self.n_initial_joint_states = None\n        self.initial_joint_state = initial_joint_state\n\n        self.convert_to_tensor = tf.keras.layers.Lambda(lambda x: tf.convert_to_tensor(x))\n\n    def add_loss(self, assigned_output, loss, loss_weight=1., name=None):\n\n        if assigned_output not in self.network.output_names:\n            raise ValueError(\"The assigned output passed does not match any network output name.\")\n\n        is_compounded = True if self._losses[assigned_output] else False\n        keep_default_name = False\n\n        if name is not None:\n            # if a name is given, overwrite the default name assigned at initialization\n            self._loss_names[assigned_output].append(name)\n        elif hasattr(loss, 'name'):\n            # else if the loss object has a name attribute, then use that name instead\n            self._loss_names[assigned_output].append(loss.name)\n        else:\n            keep_default_name = True\n            self._loss_names[assigned_output].append('subloss_' + str(len(self._loss_names[assigned_output] + 1)))\n\n        if is_compounded:\n            self.loss_names[assigned_output] = assigned_output.replace(' ', '_') + '_compounded'\n        elif keep_default_name is False:\n            self.loss_names[assigned_output] = self._loss_names[assigned_output][0]\n\n        self.loss_weights[assigned_output] = 1. if is_compounded else loss_weight\n        self._loss_weights[assigned_output].append(loss_weight)\n\n        self._losses[assigned_output].append(deepcopy(loss))\n        if is_compounded:\n            losses = self._losses[assigned_output]\n            loss_weights = self._loss_weights[assigned_output]\n            self.losses[assigned_output] = CompoundedLoss(losses=losses, loss_weights=loss_weights)\n        else:\n            self.losses[assigned_output] = self._losses[assigned_output][0]\n\n    @abstractmethod\n    def generate(self, batch_size, n_timesteps):\n        return\n\n    def get_initial_state(self, batch_size, joint_state=None):\n        if joint_state is None:\n            if self.initial_joint_state is None:\n                inputs = None\n            else:\n                i = np.random.randint(0, self.n_initial_joint_states, batch_size)\n                inputs = self.initial_joint_state[i, :]\n            initial_states = self.network.get_initial_state(batch_size=batch_size, inputs=inputs)\n        else:\n            initial_states = self.network.get_initial_state(batch_size=batch_size, inputs=joint_state)\n        return initial_states\n\n    def get_input_dim(self):\n        [inputs, _, _] = self.generate(batch_size=1, n_timesteps=self.delay_range[-1]+1)\n\n        def sort_shape(i):\n            if tf.is_tensor(i):\n                s = i.get_shape().as_list()\n            else:\n                s = i.shape\n            return s[-1]\n\n        if type(inputs) is dict:\n            shape = {key: sort_shape(val) for key, val in inputs.items()}\n        else:\n            shape = inputs\n\n        return shape\n\n    def get_losses(self):\n        return [self.losses, self.loss_weights]\n\n    def set_training_params(self, batch_size, n_timesteps, iterations):\n        self.training_batch_size = batch_size\n        self.training_n_timesteps = n_timesteps\n        self.training_iterations = iterations\n\n    def get_save_config(self):\n        cfg = {'task_kwargs': self.kwargs, 'name': self.__name__, 'training_iterations': self.training_iterations,\n               'training_batch_size': self.training_batch_size, 'training_n_timesteps': self.training_n_timesteps,\n               'do_recompute_targets': self.do_recompute_targets, 'loss_weights': self.loss_weights,\n               'initial_joint_state': self.initial_joint_state_original}\n        return cfg\n\n    def __getitem__(self, idx):\n        [inputs, targets, init_states] = self.generate(batch_size=self.training_batch_size,\n                                                       n_timesteps=self.training_n_timesteps)\n        return [inputs, init_states], targets\n\n    def __len__(self):\n        return self.training_iterations\n\n    def get_input_dict_layers(self):\n        return {key: Input((None, val,), name=key) for key, val in self.get_input_dim().items()}\n\n    def get_initial_state_layers(self):\n        n_muscles = self.network.plant.n_muscles\n        state0 = [\n            Input((self.network.plant.output_dim,), name='joint0'),\n            Input((self.network.plant.output_dim,), name='cartesian0'),\n            Input((self.network.plant.muscle_state_dim, n_muscles,), name='muscle0'),\n            Input((self.network.plant.geometry_state_dim, n_muscles,), name='geometry0'),\n            Input((n_muscles * 2, self.network.plant.proprioceptive_delay,), name='proprio_feedback0'),\n            Input((self.network.plant.space_dim, self.network.plant.visual_delay,), name='visual_feedback0'),\n            Input((self.network.plant.input_dim,), name='excitation'),\n        ]\n        state0.extend([Input((n,), name='gru' + str(k) + '_hidden0') for k, n in enumerate(self.network.n_units)])\n        return state0\n\n\nclass RandomTargetReach(Task):\n    def __init__(self, network, **kwargs):\n        super().__init__(network, **kwargs)\n        self.__name__ = 'RandomTargetReach'\n        max_iso_force = self.network.plant.muscle.max_iso_force\n        deriv_weight = kwargs.get('deriv_weight', 0.)\n        dt = self.network.plant.dt\n        muscle_loss = L2xDxActivationLoss(max_iso_force=max_iso_force, dt=dt, deriv_weight=deriv_weight)\n        gru_loss = L2xDxRegularizer(deriv_weight=0.05, dt=self.network.plant.dt)\n        self.add_loss('gru_hidden0', loss_weight=0.1, loss=gru_loss)\n        self.add_loss('muscle state', loss_weight=5, loss=muscle_loss)\n        self.add_loss('cartesian position', loss_weight=1., loss=PositionLoss())\n\n    def generate(self, batch_size, n_timesteps):\n        init_states = self.get_initial_state(batch_size=batch_size)\n        goal_states_j = self.network.plant.draw_random_uniform_states(batch_size=batch_size)\n        goal_states = self.network.plant.joint2cartesian(goal_states_j)\n        targets = self.network.plant.state2target(state=goal_states, n_timesteps=n_timesteps).numpy()\n        inputs = {\"inputs\": targets[:, :, :self.network.plant.space_dim]}\n        return [inputs, targets, init_states]\n\n\nclass RandomTargetReachWithLoads(Task):\n    def __init__(self, network, endpoint_load: float, **kwargs):\n        super().__init__(network, **kwargs)\n        self.__name__ = 'RandomTargetReachWithLoads'\n        max_iso_force = self.network.plant.muscle.max_iso_force\n        deriv_weight = kwargs.get('deriv_weight', 0.)\n        dt = self.network.plant.dt\n        muscle_loss = L2xDxActivationLoss(max_iso_force=max_iso_force, dt=dt, deriv_weight=deriv_weight)\n        gru_loss = L2xDxRegularizer(deriv_weight=0.05, dt=self.network.plant.dt)\n        self.add_loss('gru_hidden0', loss_weight=0.1, loss=gru_loss)\n        self.add_loss('muscle state', loss_weight=5, loss=muscle_loss)\n        self.add_loss('cartesian position', loss_weight=1., loss=PositionLoss())\n        self.endpoint_load = endpoint_load\n\n    def generate(self, batch_size, n_timesteps):\n        init_states = self.get_initial_state(batch_size=batch_size)\n        goal_states_j = self.network.plant.draw_random_uniform_states(batch_size=batch_size)\n        goal_states = self.network.plant.joint2cartesian(goal_states_j)\n        targets = self.network.plant.state2target(state=goal_states, n_timesteps=n_timesteps).numpy()\n        endpoint_load = tf.constant(self.endpoint_load, shape=(batch_size, n_timesteps, 2))\n        inputs = {\"inputs\": targets[:, :, :self.network.plant.space_dim], \"endpoint_load\": endpoint_load}\n        return [inputs, targets, init_states]\n\n\nclass DelayedReach(Task):\n    \"\"\"\n    A random-delay reach to a random target from a random starting position.\n\n    Args:\n      delay_range: Two-items list or numpy.array that indicate the minimum and maximum value of the delay timer.\n        The delay is randomly drawn from a uniform distribution bounded by these values.\n    \"\"\"\n    def __init__(self, network, **kwargs):\n        super().__init__(network, **kwargs)\n        self.__name__ = 'DelayedReach'\n        max_iso_force = self.network.plant.muscle.max_iso_force\n        deriv_weight = kwargs.get('deriv_weight', 0.)\n        dt = self.network.plant.dt\n        muscle_loss = L2xDxActivationLoss(max_iso_force=max_iso_force, dt=dt, deriv_weight=deriv_weight)\n        gru_loss = L2xDxRegularizer(deriv_weight=0.05, dt=self.network.plant.dt)\n        self.add_loss('gru_hidden0', loss_weight=0.1, loss=gru_loss)\n        self.add_loss('muscle state', loss_weight=5, loss=muscle_loss)\n        self.add_loss('cartesian position', loss_weight=1., loss=PositionLoss())\n        delay_range = np.array(kwargs.get('delay_range', [0.3, 0.6])) / self.network.plant.dt\n        self.delay_range = [int(delay_range[0]), int(delay_range[1])]\n        self.convert_to_tensor = tf.keras.layers.Lambda(lambda x: tf.convert_to_tensor(x))\n\n    def generate(self, batch_size, n_timesteps):\n        goal_states_j = self.network.plant.draw_random_uniform_states(batch_size=batch_size)\n        goal_states = self.network.plant.joint2cartesian(goal_states_j)\n        init_states = self.get_initial_state(batch_size=batch_size)\n        center = self.network.plant.joint2cartesian(init_states[0][:, :])\n        targets = self.network.plant.state2target(state=goal_states, n_timesteps=n_timesteps).numpy()\n\n        inputs = copy.deepcopy(targets)\n        gocue = np.zeros([batch_size, n_timesteps, 1])\n        for i in range(batch_size):\n            delay_time = int(np.random.uniform(self.delay_range[0], self.delay_range[1]))\n            targets[i, :delay_time, :] = center[i, np.newaxis, :]\n            gocue[i, delay_time, 0] = 1.\n\n        inputs = {\"inputs\": np.concatenate([inputs, gocue], axis=-1)}\n        return [inputs, self.convert_to_tensor(targets), init_states]\n\n\nclass CentreOutReach(Task):\n    def __init__(self, network, **kwargs):\n        super().__init__(network, **kwargs)\n        self.__name__ = 'CentreOutReach'\n\n        self.angle_step = kwargs.get('reach_angle_step_deg', 15)\n        self.catch_trial_perc = kwargs.get('catch_trial_perc', 50)\n        self.reaching_distance = kwargs.get('reaching_distance', 0.1)\n        self.start_position = kwargs.get('start_joint_position', None)\n        if not self.start_position:\n            # start at the center of the workspace\n            lb = np.array(self.network.plant.pos_lower_bound)\n            ub = np.array(self.network.plant.pos_upper_bound)\n            self.start_position = lb + (ub - lb) / 2\n        self.start_position = np.array(self.start_position).reshape(1, -1)\n\n        deriv_weight = kwargs.get('deriv_weight', 0.)\n        max_iso_force = self.network.plant.muscle.max_iso_force\n        dt = self.network.plant.dt\n        muscle_loss = L2xDxActivationLoss(max_iso_force=max_iso_force, dt=dt, deriv_weight=deriv_weight)\n        gru_loss = L2xDxRegularizer(deriv_weight=0.05, dt=self.network.plant.dt)\n        self.add_loss('gru_hidden0', loss_weight=0.1, loss=gru_loss)\n        self.add_loss('muscle state', loss_weight=5, loss=muscle_loss)\n        self.add_loss('cartesian position', loss_weight=1., loss=PositionLoss())\n\n        go_cue_range = np.array(kwargs.get('go_cue_range', [0.05, 0.25])) / dt\n        self.go_cue_range = [int(go_cue_range[0]), int(go_cue_range[1])]\n        self.delay_range = self.go_cue_range\n\n    def generate(self, batch_size, n_timesteps, **kwargs):\n        catch_trial = np.zeros(batch_size, dtype='float32')\n        validation = kwargs.get('validation', False)\n        if not validation:\n            init_states = self.get_initial_state(batch_size=batch_size)\n            goal_states_j = self.network.plant.draw_random_uniform_states(batch_size=batch_size)\n            goal_states = self.network.plant.joint2cartesian(goal_states_j)\n            p = int(np.floor(batch_size * self.catch_trial_perc / 100))\n            catch_trial[np.random.permutation(catch_trial.size)[:p]] = 1.\n        else:\n            angle_set = np.deg2rad(np.arange(0, 360, self.angle_step))\n            reps = int(np.ceil(batch_size / len(angle_set)))\n            angle = np.tile(angle_set, reps=reps)\n            batch_size = reps * len(angle_set)\n            catch_trial = np.zeros(batch_size, dtype='float32')\n\n            start_jpv = np.concatenate([self.start_position, np.zeros_like(self.start_position)], axis=1)\n            start_cpv = self.network.plant.joint2cartesian(start_jpv)\n            end_cp = self.reaching_distance * np.stack([np.cos(angle), np.sin(angle)], axis=-1)\n            init_states = self.network.get_initial_state(batch_size=batch_size, inputs=start_jpv)\n            goal_states = start_cpv + np.concatenate([end_cp, np.zeros_like(end_cp)], axis=-1)\n\n        center = self.network.plant.joint2cartesian(init_states[0][:, :])\n        go_cue = np.ones([batch_size, n_timesteps, 1])\n        targets = self.network.plant.state2target(state=goal_states, n_timesteps=n_timesteps).numpy()\n        inputs_targ = copy.deepcopy(targets[:, :, :self.network.plant.space_dim])\n        inputs_start = copy.deepcopy(np.repeat(center[:, np.newaxis, :self.network.plant.space_dim], n_timesteps, axis=1))\n        for i in range(batch_size):\n            if not validation:\n                go_cue_time = int(np.random.uniform(self.go_cue_range[0], self.go_cue_range[1]))\n            else:\n                go_cue_time = int(self.go_cue_range[0] + np.diff(self.go_cue_range) / 2)\n\n            if catch_trial[i] > 0.:\n                targets[i, :, :] = center[i, np.newaxis, :]\n            else:\n                targets[i, :go_cue_time, :] = center[i, np.newaxis, :]\n                inputs_start[i, go_cue_time + self.network.visual_delay:, :] = 0.\n                go_cue[i, go_cue_time + self.network.visual_delay:, 0] = 0.\n\n        return [{\"inputs\": np.concatenate([inputs_start, inputs_targ, go_cue], axis=-1)},\n                self.convert_to_tensor(targets), init_states]\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/motornet/tasks.py b/motornet/tasks.py
+--- a/motornet/tasks.py	
++++ b/motornet/tasks.py	
+@@ -240,7 +240,7 @@
+         super().__init__(network, **kwargs)
+         self.__name__ = 'CentreOutReach'
+ 
+-        self.angle_step = kwargs.get('reach_angle_step_deg', 15)
++        self.angle_step = kwargs.get('reach_angle_step_deg', 45)
+         self.catch_trial_perc = kwargs.get('catch_trial_perc', 50)
+         self.reaching_distance = kwargs.get('reaching_distance', 0.1)
+         self.start_position = kwargs.get('start_joint_position', None)
+@@ -249,17 +249,22 @@
+             lb = np.array(self.network.plant.pos_lower_bound)
+             ub = np.array(self.network.plant.pos_upper_bound)
+             self.start_position = lb + (ub - lb) / 2
+-        self.start_position = np.array(self.start_position).reshape(1, -1)
++        self.start_position = np.array([0.57, 1.47]).reshape(1, -1)
+ 
+         deriv_weight = kwargs.get('deriv_weight', 0.)
+         max_iso_force = self.network.plant.muscle.max_iso_force
+         dt = self.network.plant.dt
+         muscle_loss = L2xDxActivationLoss(max_iso_force=max_iso_force, dt=dt, deriv_weight=deriv_weight)
+-        gru_loss = L2xDxRegularizer(deriv_weight=0.05, dt=self.network.plant.dt)
++        gru_loss = L2xDxRegularizer(deriv_weight=0.005, dt=self.network.plant.dt)
+         self.add_loss('gru_hidden0', loss_weight=0.1, loss=gru_loss)
+         self.add_loss('muscle state', loss_weight=5, loss=muscle_loss)
+         self.add_loss('cartesian position', loss_weight=1., loss=PositionLoss())
+ 
++        self.CF_params = kwargs.get('CF_params', [0, 0])
++        self.FFmatvel = tf.convert_to_tensor(self.CF_params[0] * np.array([[np.cos(self.CF_params[1]), -np.sin(self.CF_params[1])],
++                                             [np.sin(self.CF_params[1]), np.cos(self.CF_params[1])]]),
++                                             dtype=tf.float32)
++
+         go_cue_range = np.array(kwargs.get('go_cue_range', [0.05, 0.25])) / dt
+         self.go_cue_range = [int(go_cue_range[0]), int(go_cue_range[1])]
+         self.delay_range = self.go_cue_range
+@@ -306,3 +311,8 @@
+ 
+         return [{"inputs": np.concatenate([inputs_start, inputs_targ, go_cue], axis=-1)},
+                 self.convert_to_tensor(targets), init_states]
++
++    def recompute_inputs(self, inputs, states):
++        jstate, cstate, mstate, gstate = self.network.unpack_plant_states(states)
++        inputs['endpoint_load'] = tf.transpose(tf.matmul(self.FFmatvel, tf.transpose(cstate[:, 2:4])))  # [2x2] x [2xbatch] = [2xbatch]
++        return inputs
+Index: tutorials/0-muscle-demo.ipynb
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/tutorials/0-muscle-demo.ipynb b/tutorials/0-muscle-demo.ipynb
+--- a/tutorials/0-muscle-demo.ipynb	
++++ b/tutorials/0-muscle-demo.ipynb	
+@@ -131,7 +131,10 @@
+     "For the fourth muscle, we will use three fixation points, with the first two linked to the worldspace. In effect this should not change the moment arms, but it should increase muscle lengths. This will allow us to test if the plant geometry is working properly."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -182,7 +185,10 @@
+     "First let's try random starting positions (the default when you use `plant.get_initial_state`). All values should be 0, except for the muscle lenght, which should vary randomly depending on the (randomly drawn) starting position."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -234,7 +240,10 @@
+     "The muscle length should be identical for all batches and all muscles.\n"
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -285,7 +294,10 @@
+     "In the 1st simulation run we excite only the muscle pulling to the up-right corner. Let's do a half-second movement."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -330,7 +342,10 @@
+     "should have more than twice the legnth they had at the start."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -373,7 +388,10 @@
+     "path lengths should change."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -421,7 +439,10 @@
+     "Let's look at the variables included in the muscle state. To do so, we first build the plant and create a dummy muscle."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -472,7 +493,10 @@
+     "Next, let's assess what the force production curves look like. Hill-type muscles consist of an active and passive length-force relationship."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -539,7 +563,10 @@
+     "\n"
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -550,7 +577,10 @@
+     "First, let's try random starting positions (the default when you use `plant.get_initial_state`).\n"
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -656,7 +686,10 @@
+    "cell_type": "markdown",
+    "source": [],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -665,7 +698,10 @@
+     "Now let us try when the point mass starts in the center of the workspace (`[x, y] = [0, 0]`)."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -739,7 +775,10 @@
+     "In the 1st simulation run, we excite only the muscle pulling to the upper right corner."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -779,7 +818,10 @@
+     "We can observe the states changing over time below. Only the upper right and upper left muscles are plotted for the sake of simplicity.\n"
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -817,7 +859,10 @@
+     "path lengths should change."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -871,7 +916,10 @@
+     "## IV. 1. Muscle states"
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -922,14 +970,20 @@
+     "- Passive forces increase much faster in the Thelen muscle, as its formulation is an exponential function instead of a quadriatic function.\n"
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+    "cell_type": "markdown",
+    "source": [],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -996,7 +1050,10 @@
+     "Similar to the Kistemaker Hill muscle, let us first look at random initial states."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -1104,7 +1161,10 @@
+     "Now let us try when the point mass starts in the center of the workspace (`[x, y] = [0, 0]`)."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -1176,7 +1236,10 @@
+     "In the 1st simulation run, we excite only the muscle pulling to the upper right corner.\n"
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -1215,7 +1278,10 @@
+     "We can observe the states changing over time below. Only the upper right and upper left muscles are plotted for the sake of simplicity."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -1252,7 +1318,10 @@
+     "Note that some variables are at floating point precision."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -1307,7 +1376,10 @@
+     "Let us first look at the state features.\n"
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -1362,7 +1434,10 @@
+     "Note that the tendon is much stiffer than the passive muscle forces. Additionally, the tendon forces are capped at 1 to prevent the muscle from outputing more than its maximum isometric force. Finally, note how the active force reaches 0 faster than the tendon force, due to the overlap between tendon and passive forces leading to them cancelling each other in that region.\n"
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -1436,7 +1511,10 @@
+     "Let's use the pre-built `CompliantTendonArm26` plant object.\n"
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -1529,7 +1607,10 @@
+     "And with fixed starting positions:"
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -1622,7 +1703,10 @@
+     "In the 1st simulation run, we create a tug-of-war plant and excite the muscle pulling to the right."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
+@@ -1702,7 +1786,10 @@
+     "And finally, we create an isometric co-contraction. Muscle lengths and velocities vary over time, while position does not move. This indicates that the musculotendon complex tenses up in an isometric fashion."
+    ],
+    "metadata": {
+-    "collapsed": false
++    "collapsed": false,
++    "pycharm": {
++     "name": "#%% md\n"
++    }
+    }
+   },
+   {
