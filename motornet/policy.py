@@ -27,7 +27,7 @@ class PolicyGRU(nn.Module):
             elif name == "fc.weight":
                 th.nn.init.xavier_uniform_(param)
             elif name == "fc.bias":
-                th.nn.init.constant_(param, -5.)
+                th.nn.init.constant_(param, -3.)
             else:
                 raise ValueError
 
@@ -119,7 +119,7 @@ class ModularPolicyGRU(nn.Module):
 
         # Initialize all output parameters
         self.Y = nn.Parameter(nn.init.xavier_uniform_(th.Tensor(output_size, hidden_size), gain=1))
-        self.bY = nn.Parameter(nn.init.constant_(th.Tensor(output_size), -3.)) #-6
+        self.bY = nn.Parameter(nn.init.constant_(th.Tensor(output_size), -3.))
 
         # Create indices for indexing modules
         module_dims = []
@@ -129,6 +129,20 @@ class ModularPolicyGRU(nn.Module):
             else:
                 module_dims.append(np.arange(module_size[m]))
         self.module_dims = module_dims
+
+        column_dims = [module_dims[:] for _ in range(self.num_modules)]
+        for i in range(connectivity_mask.shape[0]):
+            for j in range(connectivity_mask.shape[1]):
+                # Determine the proportion of indices to select
+                proportion = connectivity_mask[i, j]  # e.g., 30%
+                num_indices = int(len(column_dims[i][j]) * proportion)
+
+                # Randomly select indices
+                selected_indices = np.random.choice(range(len(column_dims[i][j])), num_indices, replace=False)
+                if selected_indices.size > 0:
+                    column_dims[i][j] = column_dims[i][j][selected_indices]
+                else:
+                    column_dims[i][j] = np.array([])
 
         # Create sparsity mask for GRU
         h_probability_mask = np.zeros((hidden_size, input_size + hidden_size), dtype=np.float32)
@@ -149,17 +163,17 @@ class ModularPolicyGRU(nn.Module):
                         module_type = 'task'
                 if module_type == 'hidden':
                     for m in range(self.num_modules):
-                        if j in (module_dims[m] + input_size):
-                            j_module = m
-                        h_probability_mask[i, j] = connectivity_mask[i_module, j_module]
+                        if j in (module_dims[m] + input_size) and j in (column_dims[i_module][m] + input_size):
+                            h_probability_mask[i, j] = connectivity_mask[i_module, j_module]
                 elif module_type == 'vision':
                     h_probability_mask[i, j] = vision_mask[i_module]
                 elif module_type == 'proprio':
                     h_probability_mask[i, j] = proprio_mask[i_module]
                 elif module_type == 'task':
                     h_probability_mask[i, j] = task_mask[i_module]
-                    if j == task_dim[-1]:
-                        h_probability_mask[i, j] = proprio_mask[i_module]
+                    # This is the condition-independent! So this has to be in your task code
+                    # if j == task_dim[-1]:
+                    #     h_probability_mask[i, j] = proprio_mask[i_module]
 
         # Create sparsity mask for output
         y_probability_mask = np.zeros((output_size, hidden_size), dtype=np.float32)

@@ -1,9 +1,4 @@
 tasklocal.py
-N/
+N/*
 notebooks/
-.idea/inspectionProfiles/profiles_settings.xml
-.idea/misc.xml
-.idea/modules.xml
-.idea/MotorNet.iml
-.idea/other.xml
-.idea/vcs.xml
+.idea/*
