@@ -52,7 +52,7 @@ class ModularPolicyGRU(nn.Module):
                  connectivity_delay: np.ndarray, spectral_scaling=None,
                  proportion_excitatory=None, input_gain=1.,
                  device=th.device("cpu"), random_seed=None, activation='tanh', output_delay=0,
-                 cancelation_matrix=None):
+                 cancelation_matrix=None, last_task_proprio_only: bool=False):
         super(ModularPolicyGRU, self).__init__()
 
         # Store class info
@@ -64,7 +64,8 @@ class ModularPolicyGRU(nn.Module):
             self.d_hidden = lambda hidden: 1 - th.square(hidden)
         elif activation == 'rect_tanh':
             self.activation = lambda hidden: th.max(th.zeros_like(hidden), th.tanh(hidden))
-            self.d_hidden = lambda hidden: th.where(th.tanh(hidden) > 0, 1 - th.tanh(hidden) ** 2, th.zeros_like(hidden))
+            self.d_hidden = lambda hidden: th.where(th.tanh(hidden) > 0, 1 - th.tanh(hidden) ** 2,
+                                                    th.zeros_like(hidden))
         self.spectral_scaling = spectral_scaling
         self.device = device
         self.num_modules = len(module_size)
@@ -79,6 +80,7 @@ class ModularPolicyGRU(nn.Module):
         self.h_buffer = []
         self.counter = 0
         self.cancel_times = None
+        self.last_task_proprio_only = last_task_proprio_only
 
         if cancelation_matrix is None:
             self.cancelation_matrix = cancelation_matrix
@@ -102,19 +104,18 @@ class ModularPolicyGRU(nn.Module):
             assert len(proportion_excitatory) == self.num_modules
 
         # Initialize all GRU parameters
-        # Initial hidden state
         self.h0 = nn.Parameter(th.zeros(1, hidden_size))
-        # Update gate
         self.Wz = nn.Parameter(th.cat((nn.init.xavier_uniform_(th.Tensor(hidden_size, input_size), gain=input_gain),
-                                       nn.init.normal_(th.Tensor(hidden_size, hidden_size), 0, 1/np.sqrt(hidden_size))), dim=1))
+                                       nn.init.normal_(th.Tensor(hidden_size, hidden_size), 0,
+                                                       1 / np.sqrt(hidden_size))), dim=1))
         self.bz = nn.Parameter(th.zeros(hidden_size))
-        # Reset gate
         self.Wr = nn.Parameter(th.cat((nn.init.xavier_uniform_(th.Tensor(hidden_size, input_size), gain=input_gain),
-                                       nn.init.normal_(th.Tensor(hidden_size, hidden_size), 0, 1/np.sqrt(hidden_size))), dim=1))
+                                       nn.init.normal_(th.Tensor(hidden_size, hidden_size), 0,
+                                                       1 / np.sqrt(hidden_size))), dim=1))
         self.br = nn.Parameter(th.zeros(hidden_size))
-        # Candidate hidden state
         self.Wh = nn.Parameter(th.cat((nn.init.xavier_uniform_(th.Tensor(hidden_size, input_size), gain=input_gain),
-                                       nn.init.normal_(th.Tensor(hidden_size, hidden_size), 0, 1/np.sqrt(hidden_size))), dim=1))
+                                       nn.init.normal_(th.Tensor(hidden_size, hidden_size), 0,
+                                                       1 / np.sqrt(hidden_size))), dim=1))
         self.bh = nn.Parameter(th.zeros(hidden_size))
 
         # Initialize all output parameters
@@ -122,78 +123,78 @@ class ModularPolicyGRU(nn.Module):
         self.bY = nn.Parameter(nn.init.constant_(th.Tensor(output_size), -3.))
 
         # Create indices for indexing modules
-        module_dims = []
-        for m in range(self.num_modules):
-            if m > 0:
-                module_dims.append(np.arange(module_size[m]) + module_dims[-1][-1] + 1)
-            else:
-                module_dims.append(np.arange(module_size[m]))
-        self.module_dims = module_dims
+        self.module_dims = []
+        current_idx = 0
+        for size in module_size:
+            self.module_dims.append(np.arange(current_idx, current_idx + size))
+            current_idx += size
 
-        column_dims = [module_dims[:] for _ in range(self.num_modules)]
-        for i in range(connectivity_mask.shape[0]):
-            for j in range(connectivity_mask.shape[1]):
-                # Determine the proportion of indices to select
-                proportion = connectivity_mask[i, j]  # e.g., 30%
-                num_indices = int(len(column_dims[i][j]) * proportion)
-
-                # Randomly select indices
-                selected_indices = np.random.choice(range(len(column_dims[i][j])), num_indices, replace=False)
-                if selected_indices.size > 0:
-                    column_dims[i][j] = column_dims[i][j][selected_indices]
-                else:
-                    column_dims[i][j] = np.array([])
-
-        # Create sparsity mask for GRU
+        # Create sparsity probability mask for GRU weights
         h_probability_mask = np.zeros((hidden_size, input_size + hidden_size), dtype=np.float32)
-        i_module = 0
-        j_module = 0
-        for i in range(self.Wz.shape[0]):
-            for m in range(self.num_modules):
-                if i in module_dims[m]:
-                    i_module = m
-            for j in range(self.Wz.shape[1]):
-                module_type = 'hidden'
-                if j < input_size:
-                    if j in vision_dim:
-                        module_type = 'vision'
-                    elif j in proprio_dim:
-                        module_type = 'proprio'
-                    elif j in task_dim:
-                        module_type = 'task'
-                if module_type == 'hidden':
-                    for m in range(self.num_modules):
-                        if j in (module_dims[m] + input_size) and j in (column_dims[i_module][m] + input_size):
-                            h_probability_mask[i, j] = connectivity_mask[i_module, j_module]
-                elif module_type == 'vision':
-                    h_probability_mask[i, j] = vision_mask[i_module]
-                elif module_type == 'proprio':
-                    h_probability_mask[i, j] = proprio_mask[i_module]
-                elif module_type == 'task':
-                    h_probability_mask[i, j] = task_mask[i_module]
-                    # This is the condition-independent! So this has to be in your task code
-                    # if j == task_dim[-1]:
-                    #     h_probability_mask[i, j] = proprio_mask[i_module]
+
+        # Populate the mask module-by-module
+        for i_mod in range(self.num_modules):
+            rows = self.module_dims[i_mod]
+
+            # Input connections
+            if len(vision_dim) > 0:
+                h_probability_mask[np.ix_(rows, vision_dim)] = vision_mask[i_mod]
+            if len(proprio_dim) > 0:
+                h_probability_mask[np.ix_(rows, proprio_dim)] = proprio_mask[i_mod]
+
+            if len(task_dim) > 0:
+                if self.last_task_proprio_only:
+                    # General task inputs connect based on task_mask
+                    general_task_dims = task_dim[:-1]
+                    if len(general_task_dims) > 0:
+                        h_probability_mask[np.ix_(rows, general_task_dims)] = task_mask[i_mod]
+
+                    # The last task input connects only to modules that also get proprioceptive input
+                    last_task_dim = task_dim[-1]
+                    h_probability_mask[np.ix_(rows, [last_task_dim])] = proprio_mask[i_mod]
+                else:
+                    # All task inputs connect based on task_mask if the special case is disabled
+                    h_probability_mask[np.ix_(rows, task_dim)] = task_mask[i_mod]
+
+            for j_mod in range(self.num_modules):
+                p = connectivity_mask[i_mod, j_mod]
+
+                if p > 0:
+                    # Identify all possible presynaptic neurons (columns) in module j
+                    all_presynaptic_neurons = self.module_dims[j_mod]
+
+                    # Determine how many neurons from module j will project to module i
+                    num_projecting_neurons = int(np.ceil(p * len(all_presynaptic_neurons)))
+
+                    # Randomly select the projecting neurons from module j
+                    selected_presynaptic_neurons = self.rng.choice(
+                        all_presynaptic_neurons,
+                        size=num_projecting_neurons,
+                        replace=False
+                    )
+
+                    # Get their column indices in the full weight matrix (with offset)
+                    selected_columns_global = selected_presynaptic_neurons + input_size
+
+                    # Set connection probability to 1.0 for this selected subset of columns.
+                    # This ensures overall sparsity is p without compounding probabilities.
+                    h_probability_mask[np.ix_(rows, selected_columns_global)] = 1.0
 
         # Create sparsity mask for output
         y_probability_mask = np.zeros((output_size, hidden_size), dtype=np.float32)
-        j_module = 0
-        for j in range(self.Y.shape[1]):
-            for m in range(self.num_modules):
-                if j in module_dims[m]:
-                    j_module = m
-            y_probability_mask[:, j] = output_mask[j_module]
+        for j_mod in range(self.num_modules):
+            cols = self.module_dims[j_mod]
+            y_probability_mask[:, cols] = output_mask[j_mod]
 
-        # Initialize masks with desired sparsity
+        # Initialize binary masks with desired sparsity using binomial sampling
         mask_connectivity = self.rng.binomial(1, h_probability_mask)
         mask_output = self.rng.binomial(1, y_probability_mask)
 
         # Masks for weights and biases
-        self.mask_Wz = nn.Parameter(th.tensor(mask_connectivity), requires_grad=False)
-        self.mask_Wr = nn.Parameter(th.tensor(mask_connectivity), requires_grad=False)
-        self.mask_Wh = nn.Parameter(th.tensor(mask_connectivity), requires_grad=False)
-        self.mask_Y = nn.Parameter(th.tensor(mask_output), requires_grad=False)
-        # No need to mask any biases for now
+        self.mask_Wz = nn.Parameter(th.tensor(mask_connectivity, dtype=th.float32), requires_grad=False)
+        self.mask_Wr = nn.Parameter(th.tensor(mask_connectivity, dtype=th.float32), requires_grad=False)
+        self.mask_Wh = nn.Parameter(th.tensor(mask_connectivity, dtype=th.float32), requires_grad=False)
+        self.mask_Y = nn.Parameter(th.tensor(mask_output, dtype=th.float32), requires_grad=False)
         self.mask_bz = nn.Parameter(th.ones_like(self.bz), requires_grad=False)
         self.mask_br = nn.Parameter(th.ones_like(self.br), requires_grad=False)
         self.mask_bh = nn.Parameter(th.ones_like(self.bh), requires_grad=False)
@@ -210,54 +211,69 @@ class ModularPolicyGRU(nn.Module):
             type_list = np.array([-1, 1])
             self.unittype_W = nn.Parameter(th.zeros((hidden_size, hidden_size)), requires_grad=False)
             for m in range(self.num_modules):
-                self.unittype_W[:, module_dims[m]] = (
-                    th.tensor(type_list[self.rng.binomial(1, np.ones(module_size[m])*proportion_excitatory[m])],
-                              dtype=th.float32))
-            #self.mask_Y[:, self.unittype_W[0, :] != 1] = 0  # only allow excitatory units to produce output
-            # Eliminate inhibitory connections across modules
-            for i in range(hidden_size):
-                for m in range(self.num_modules):
-                    if i in module_dims[m]:
-                        i_module = m
-                for j in range(hidden_size):
-                    for m in range(self.num_modules):
-                        if j in module_dims[m]:
-                            j_module = m
-                    if j_module != i_module and self.unittype_W[i, j] == -1 and False:
-                        self.mask_Wz[i, j + input_size] = 0
-                        self.mask_Wr[i, j + input_size] = 0
-                        self.mask_Wh[i, j + input_size] = 0
-            self.enforce_dale()
+                # Correctly get indices for the current module
+                indices = self.module_dims[m]
+                unit_types = th.tensor(
+                    type_list[self.rng.binomial(1, np.ones(module_size[m]) * proportion_excitatory[m])],
+                    dtype=th.float32)
+                # This needs to be broadcast correctly
+                self.unittype_W[:, indices] = unit_types.unsqueeze(0).expand(hidden_size, -1)
 
+            # Eliminate inhibitory connections across modules (optional logic, kept as is)
+            for i_mod in range(self.num_modules):
+                for j_mod in range(self.num_modules):
+                    if i_mod != j_mod:
+                        # Find indices for inhibitory neurons in the presynaptic module (j_mod)
+                        presynaptic_indices = self.module_dims[j_mod]
+                        inhibitory_neurons_mask = self.unittype_W[0, presynaptic_indices] == -1
+                        inhibitory_indices_global = presynaptic_indices[inhibitory_neurons_mask] + self.input_size
+
+                        # Get indices for postsynaptic module
+                        postsynaptic_indices = self.module_dims[i_mod]
+
+                        # Set mask to zero for connections from inhibitory neurons in j_mod to neurons in i_mod
+                        if len(inhibitory_indices_global) > 0:
+                            self.mask_Wz.data[np.ix_(postsynaptic_indices, inhibitory_indices_global)] = 0
+                            self.mask_Wr.data[np.ix_(postsynaptic_indices, inhibitory_indices_global)] = 0
+                            self.mask_Wh.data[np.ix_(postsynaptic_indices, inhibitory_indices_global)] = 0
+            self.enforce_dale()
 
         # Zero out weights and biases that we don't want to exist
-        self.Wz = nn.Parameter(th.mul(self.Wz, self.mask_Wz))
-        self.Wr = nn.Parameter(th.mul(self.Wr, self.mask_Wr))
-        self.Wh = nn.Parameter(th.mul(self.Wh, self.mask_Wh))
-        self.Y = nn.Parameter(th.mul(self.Y, self.mask_Y))
-        self.bz = nn.Parameter(th.mul(self.bz, self.mask_bz))
-        self.br = nn.Parameter(th.mul(self.br, self.mask_br))
-        self.bh = nn.Parameter(th.mul(self.bh, self.mask_bh))
-        self.bY = nn.Parameter(th.mul(self.bY, self.mask_bY))
+        with th.no_grad():
+            self.Wz.mul_(self.mask_Wz)
+            self.Wr.mul_(self.mask_Wr)
+            self.Wh.mul_(self.mask_Wh)
+            self.Y.mul_(self.mask_Y)
+            self.bz.mul_(self.mask_bz)
+            self.br.mul_(self.mask_br)
+            self.bh.mul_(self.mask_bh)
+            self.bY.mul_(self.mask_bY)
 
-        Wh_i, Wh = th.split(self.Wh.detach(), [input_size, hidden_size], dim=1)
-        _, mask_Wh = th.split(self.mask_Wh.detach(), [input_size, hidden_size], dim=1)
-        #Wh = self.orthogonalize_with_sparsity(Wh.numpy(), mask_Wh.numpy())
-        #self.Wh = nn.Parameter(th.mul(th.cat((Wh_i, th.tensor(Wh)), dim=1), self.mask_Wh))
         if proportion_excitatory:
             self.enforce_dale()
-            # Restoring E/I balance
-            Wh_i, Wh = th.split(self.Wh.detach(), [input_size, hidden_size], dim=1)
-            Wh[self.unittype_W == -1] = Wh[self.unittype_W == -1] / th.abs(th.sum(Wh[self.unittype_W == -1]))
-            Wh[self.unittype_W == 1] = Wh[self.unittype_W == 1] / th.sum(Wh[self.unittype_W == 1])
-            self.Wh = nn.Parameter(th.cat((Wh_i, Wh), dim=1))
+            # Restoring E/I balance (optional logic, kept as is)
+            with th.no_grad():
+                Wh_i, Wh = th.split(self.Wh, [input_size, hidden_size], dim=1)
+                inhib_mask = (self.unittype_W == -1)
+                excit_mask = (self.unittype_W == 1)
+                sum_inhib = th.sum(Wh[inhib_mask])
+                sum_excit = th.sum(Wh[excit_mask])
+                if th.abs(sum_inhib) > 1e-6:
+                    Wh[inhib_mask] /= th.abs(sum_inhib)
+                if th.abs(sum_excit) > 1e-6:
+                    Wh[excit_mask] /= sum_excit
+                self.Wh.data = th.cat((Wh_i, Wh), dim=1)
 
         # Optional rescaling of Wh eigenvalues
         if self.spectral_scaling:
-            Wh_i, Wh = th.split(self.Wh.detach(), [input_size, hidden_size], dim=1)
-            eig_norm = th.max(th.real(th.linalg.eigvals(Wh)))
-            Wh = self.spectral_scaling * (Wh / eig_norm)
-            self.Wh = nn.Parameter(th.cat((Wh_i, Wh), dim=1))
+            with th.no_grad():
+                Wh_i, Wh = th.split(self.Wh, [input_size, hidden_size], dim=1)
+                # Ensure matrix is not all zeros before finding eigenvalues
+                if th.any(Wh != 0):
+                    eig_norm = th.max(th.abs(th.linalg.eigvals(Wh)))
+                    if eig_norm > 1e-6:
+                        Wh = self.spectral_scaling * (Wh / eig_norm)
+                        self.Wh.data = th.cat((Wh_i, Wh), dim=1)
 
         # Registering a backward hook to apply mask on gradients during backward pass
         self.Wz.register_hook(lambda grad: grad * self.mask_Wz.data)
@@ -266,7 +282,6 @@ class ModularPolicyGRU(nn.Module):
         self.bz.register_hook(lambda grad: grad * self.mask_bz.data)
         self.br.register_hook(lambda grad: grad * self.mask_br.data)
         self.bh.register_hook(lambda grad: grad * self.mask_bh.data)
-        self.Wh.register_hook(lambda grad: grad * self.mask_Wh.data)
         self.Y.register_hook(lambda grad: grad * self.mask_Y.data)
         self.bY.register_hook(lambda grad: grad * self.mask_bY.data)
 
