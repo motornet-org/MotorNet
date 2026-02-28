@@ -8,10 +8,10 @@ dynamic = ["version"]
 authors = [
   { name="Olivier Codol", email="codol.olivier@gmail.com" },
 ]
-description = "A PyTorch-powered python toolbox to train deep neural networks to perform motor tasks."
+description = "A python toolbox to train deep neural networks to perform motor tasks, with both PyTorch and JAX backends."
 readme = "README.md"
 requires-python = ">=3.10"
-keywords = ["motornet", "pytorch"]
+keywords = ["motornet", "pytorch", "jax", "neuromechanics", "motor-control"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
@@ -22,13 +22,17 @@ dependencies = [
     "torch",
     "gymnasium",
     "matplotlib",
+    "jax",
+    "jaxlib",
+    "equinox",
+    "optax",
 ]
 
 [tool.setuptools.dynamic]
 version = {attr = "motornet.__version__"}
 
 [tool.setuptools]
-packages = ["motornet"]
+packages = ["motornet", "motornet_jax", "motornet_jax.skeleton", "motornet_jax.muscle", "motornet_jax.effector", "motornet_jax.environment", "motornet_jax.policy", "motornet_jax.integration", "motornet_jax.training", "motornet_jax.tests"]
 
 [project.urls]
 "Homepage" = "https://oliviercodol.github.io/MotorNet/build/html/index.html"

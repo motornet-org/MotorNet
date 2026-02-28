@@ -1,0 +1,14 @@
+name: motornet-jax
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.9
+  - pip
+  - pip:
+    - jax>=0.4.20
+    - jaxlib>=0.4.20
+    - equinox>=0.11.0
+    - optax>=0.1.7
+    - pytest>=7.0.0
+    - matplotlib>=3.5.0

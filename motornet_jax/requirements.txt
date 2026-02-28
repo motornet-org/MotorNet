@@ -1,0 +1,18 @@
+# Core dependencies for MotorNet-JAX
+jax>=0.4.20
+jaxlib>=0.4.20
+
+# Neural networks
+equinox>=0.11.0
+
+# Optimization
+optax>=0.1.7
+
+# Optional: GPU support (uncomment for CUDA)
+# jax[cuda12_pip]>=0.4.20
+
+# Testing
+pytest>=7.0.0
+
+# Visualization (optional)
+matplotlib>=3.5.0

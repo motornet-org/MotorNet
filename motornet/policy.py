@@ -52,7 +52,7 @@ class ModularPolicyGRU(nn.Module):
                  connectivity_delay: np.ndarray, spectral_scaling=None,
                  proportion_excitatory=None, input_gain=1.,
                  device=th.device("cpu"), random_seed=None, activation='tanh', output_delay=0,
-                 cancelation_matrix=None, last_task_proprio_only: bool=False, last_task_special: bool=False):
+                 cancelation_matrix=None, last_task_proprio_only: bool=False):
         super(ModularPolicyGRU, self).__init__()
 
         # Store class info
@@ -81,7 +81,6 @@ class ModularPolicyGRU(nn.Module):
         self.counter = 0
         self.cancel_times = None
         self.last_task_proprio_only = last_task_proprio_only
-        self.last_task_special = last_task_special
 
         if cancelation_matrix is None:
             self.cancelation_matrix = cancelation_matrix
@@ -153,16 +152,6 @@ class ModularPolicyGRU(nn.Module):
                     # The last task input connects only to modules that also get proprioceptive input
                     last_task_dim = task_dim[-1]
                     h_probability_mask[np.ix_(rows, [last_task_dim])] = proprio_mask[i_mod]
-                elif self.last_task_special:
-                    # General task inputs connect based on task_mask
-                    general_task_dims = task_dim[:-1]
-                    if len(general_task_dims) > 0:
-                        h_probability_mask[np.ix_(rows, general_task_dims)] = task_mask[i_mod]
-
-                    # The last task input connects only to modules that also get proprioceptive input
-                    last_task_dim = task_dim[-1]
-                    special = [1, 1, 0, 0]
-                    h_probability_mask[np.ix_(rows, [last_task_dim])] = special[i_mod]
                 else:
                     # All task inputs connect based on task_mask if the special case is disabled
                     h_probability_mask[np.ix_(rows, task_dim)] = task_mask[i_mod]
@@ -307,14 +296,14 @@ class ModularPolicyGRU(nn.Module):
     def set_cancel_times(self, times):
         self.cancel_times = times
 
-    #@th.compile(mode='max-autotune')
+    @th.compile(mode='max-autotune')
     def update_buffer(self, h_buffer, h_prev):
         # Create a new tensor by concatenating h_prev (reshaped appropriately) with the older values
         # Skip the last value to maintain the buffer size
         new_h_buffer = th.cat((h_prev.unsqueeze(-1), h_buffer[:, :, :-1]), dim=-1)
         return new_h_buffer
 
-    #@th.compile(mode='max-autotune')
+    @th.compile(mode='max-autotune')
     def forward(self, x, h_prev):
         # Update hidden state buffer
         self.h_buffer = self.update_buffer(self.h_buffer, h_prev)
