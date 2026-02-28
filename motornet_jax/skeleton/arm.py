@@ -8,8 +8,6 @@ matching the dynamics of the PyTorch MotorNet implementation.
 from typing import NamedTuple, Tuple, Optional
 import jax
 import jax.numpy as jnp
-from jax import jit
-from functools import partial
 
 from motornet_jax.types import JointState, CartesianState
 
@@ -153,7 +151,6 @@ class TwoDofArm:
         return self.params
 
     @staticmethod
-    @jit
     def forward_kinematics(
         joint_state: JointState,
         params: TwoDofArmParams,
@@ -210,7 +207,6 @@ class TwoDofArm:
         return elbow_pos, hand_pos, elbow_vel, hand_vel
 
     @staticmethod
-    @jit
     def joint2cartesian(
         joint_state: JointState,
         params: TwoDofArmParams,
@@ -228,7 +224,32 @@ class TwoDofArm:
         return CartesianState(position=hand_pos, velocity=hand_vel)
 
     @staticmethod
-    @jit
+    def fingertip_position(
+        joint_state: JointState,
+        params: TwoDofArmParams,
+    ) -> jnp.ndarray:
+        """Compute only the hand (fingertip) position without velocities.
+
+        This is faster than full forward_kinematics when only hand position
+        is needed (e.g., during simulation loops for loss computation).
+
+        Args:
+            joint_state: Joint state
+            params: Arm parameters
+
+        Returns:
+            Hand position. Shape: (batch, 2)
+        """
+        pos = joint_state.position
+        sho = pos[:, 0]
+        elb = pos[:, 1]
+        pos_sum = sho + elb
+
+        hand_x = params.L1 * jnp.cos(sho) + params.L2 * jnp.cos(pos_sum)
+        hand_y = params.L1 * jnp.sin(sho) + params.L2 * jnp.sin(pos_sum)
+        return jnp.stack([hand_x, hand_y], axis=-1)
+
+    @staticmethod
     def compute_jacobian(
         joint_state: JointState,
         params: TwoDofArmParams,
@@ -266,7 +287,6 @@ class TwoDofArm:
         return jacobian
 
     @staticmethod
-    @jit
     def inverse_dynamics(
         joint_state: JointState,
         torques: jnp.ndarray,
@@ -343,7 +363,6 @@ class TwoDofArm:
         return jnp.stack([acc_0, acc_1], axis=-1)
 
     @staticmethod
-    @jit
     def ode(
         joint_state: JointState,
         torques: jnp.ndarray,
@@ -368,7 +387,6 @@ class TwoDofArm:
         return joint_state.velocity, acceleration
 
     @staticmethod
-    @jit
     def clip_velocity(
         pos: jnp.ndarray,
         vel: jnp.ndarray,
@@ -406,7 +424,6 @@ class TwoDofArm:
         return vel
 
     @staticmethod
-    @jit
     def integrate(
         joint_state: JointState,
         acceleration: jnp.ndarray,
@@ -436,7 +453,6 @@ class TwoDofArm:
         return JointState(position=new_pos, velocity=new_vel)
 
     @staticmethod
-    @jit
     def path2cartesian(
         path_coordinates: jnp.ndarray,
         path_fixation_body: jnp.ndarray,

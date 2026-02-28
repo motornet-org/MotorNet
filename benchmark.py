@@ -5,6 +5,10 @@ Compares performance on three tasks:
 1. Single effector step
 2. Full episode rollout
 3. Training iteration (forward + backward)
+
+Note: PyTorch MotorNet uses @th.compile(mode='max-autotune', backend='inductor')
+on all muscle and skeleton functions internally, giving it a strong compiled baseline.
+JAX achieves its speedup through whole-graph XLA compilation via @jax.jit + lax.scan.
 """
 
 import time
@@ -180,7 +184,7 @@ def run_jax_benchmarks(backend=None):
         def step_fn(carry, _):
             env_state, obs, hidden = carry
             action, new_hidden = policy(obs, hidden)
-            new_env_state, new_obs, reward, terminated, truncated, info = env.step(
+            new_env_state, new_obs, reward, terminated, truncated, info = env.step_training(
                 env_state, action
             )
             return (new_env_state, new_obs, new_hidden), info["states"]["fingertip"]
@@ -220,7 +224,7 @@ def run_jax_benchmarks(backend=None):
             def step_fn(carry, _):
                 env_state, obs, hidden = carry
                 action, new_hidden = pol(obs, hidden)
-                new_env_state, new_obs, reward, terminated, truncated, info = env.step(
+                new_env_state, new_obs, reward, terminated, truncated, info = env.step_training(
                     env_state, action
                 )
                 return (new_env_state, new_obs, new_hidden), (info["states"]["fingertip"], action)

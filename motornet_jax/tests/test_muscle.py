@@ -177,7 +177,7 @@ class TestCompliantTendonMuscle:
             moment_arm=jnp.zeros((batch_size, 2, 2)),
         )
 
-        state = CompliantTendonMuscle.get_initial_state.__wrapped__(batch_size, geometry, params)
+        state = CompliantTendonMuscle.get_initial_state(batch_size, geometry, params)
 
         assert state.activation.shape == (batch_size, 2)
         assert state.fiber_length.shape == (batch_size, 2)
@@ -198,7 +198,7 @@ class TestCompliantTendonMuscle:
             moment_arm=jnp.zeros((batch_size, 2, 2)),
         )
 
-        state = CompliantTendonMuscle.get_initial_state.__wrapped__(batch_size, geometry, params)
+        state = CompliantTendonMuscle.get_initial_state(batch_size, geometry, params)
 
         # Fiber length should still be positive (clamped)
         assert jnp.all(state.fiber_length > 0)

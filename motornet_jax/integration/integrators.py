@@ -8,10 +8,9 @@ for efficient trajectory rollouts.
 from typing import Callable, Tuple, Any
 import jax
 import jax.numpy as jnp
-from jax import jit, lax
+from jax import lax
 
 
-@jit
 def euler_step(
     state: Any,
     derivative: Any,
@@ -186,7 +185,6 @@ def rollout_policy(
 
 # Specialized integrators for common patterns
 
-@jit
 def integrate_ministeps(
     state: Any,
     action: Any,

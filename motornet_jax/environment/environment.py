@@ -15,8 +15,6 @@ Matches the PyTorch MotorNet API including:
 from typing import NamedTuple, Tuple, Optional, Any, Dict, List
 import jax
 import jax.numpy as jnp
-from jax import jit, lax
-from functools import partial
 
 from motornet_jax.types import (
     JointState,
@@ -253,7 +251,6 @@ class Environment:
         return vision
 
     @staticmethod
-    @jit
     def update_obs_buffer(
         obs_buffer: ObsBuffer,
         new_proprioception: jnp.ndarray,
@@ -273,17 +270,10 @@ class Environment:
         Returns:
             Updated observation buffer.
         """
-        # Roll and update proprioception
-        new_prop = jnp.roll(obs_buffer.proprioception, shift=-1, axis=0)
-        new_prop = new_prop.at[-1].set(new_proprioception)
-
-        # Roll and update vision
-        new_vis = jnp.roll(obs_buffer.vision, shift=-1, axis=0)
-        new_vis = new_vis.at[-1].set(new_vision)
-
-        # Roll and update action (if action stacking > 0)
-        new_act = jnp.roll(obs_buffer.action, shift=-1, axis=0)
-        new_act = new_act.at[-1].set(new_action)
+        # Shift buffer and append new value (more efficient than roll+set)
+        new_prop = jnp.concatenate([obs_buffer.proprioception[1:], new_proprioception[None]], axis=0)
+        new_vis = jnp.concatenate([obs_buffer.vision[1:], new_vision[None]], axis=0)
+        new_act = jnp.concatenate([obs_buffer.action[1:], new_action[None]], axis=0)
 
         return ObsBuffer(
             proprioception=new_prop,
@@ -536,6 +526,81 @@ class Environment:
             "action": action,
             "noisy_action": noisy_action,
             "goal": env_state.goal,
+        }
+
+        return new_state, obs, reward, terminated, truncated, info
+
+    def step_training(
+        self,
+        env_state: EnvState,
+        action: jnp.ndarray,
+        endpoint_load: Optional[jnp.ndarray] = None,
+        joint_load: Optional[jnp.ndarray] = None,
+    ) -> Tuple[EnvState, jnp.ndarray, jnp.ndarray, bool, bool, Dict]:
+        """Lightweight step for training loops (no noise, minimal info).
+
+        Returns the same tuple signature as step() but with a minimal info
+        dict containing only fingertip position. This reduces the amount of
+        data carried through lax.scan outputs during training.
+
+        Args:
+            env_state: Current environment state.
+            action: Action to take. Shape: (batch, n_muscles)
+            endpoint_load: External endpoint load. Shape: (batch, n_dim)
+            joint_load: External joint load. Shape: (batch, n_joints)
+
+        Returns:
+            new_state, obs, reward, terminated, truncated, info
+        """
+        batch_size = action.shape[0]
+
+        if endpoint_load is None:
+            endpoint_load = jnp.zeros((batch_size, self.n_dim))
+        if joint_load is None:
+            joint_load = jnp.zeros((batch_size, self.effector.n_joints))
+
+        # Step effector (no action noise for training)
+        new_effector = self.effector.__class__.step(
+            env_state.effector,
+            action,
+            endpoint_load,
+            joint_load,
+            self.effector.params,
+        )
+
+        # Get new proprioception and vision (no noise)
+        new_prop = self.get_proprioception(new_effector, self.params)
+        new_vis = self.get_vision(new_effector, self.params)
+
+        # Update observation buffer
+        new_obs_buffer = self.update_obs_buffer(
+            env_state.obs_buffer,
+            new_prop,
+            new_vis,
+            action,
+        )
+
+        new_elapsed = env_state.elapsed + self.dt
+
+        new_state = EnvState(
+            effector=new_effector,
+            goal=env_state.goal,
+            obs_buffer=new_obs_buffer,
+            step_count=env_state.step_count + 1,
+            elapsed=new_elapsed,
+        )
+
+        obs = self.get_obs(new_state, self.params)
+
+        reward = None
+        terminated = new_elapsed >= self.params.max_ep_duration
+        truncated = False
+
+        # Minimal info dict for training - only what's needed for loss
+        info = {
+            "states": {
+                "fingertip": new_effector.fingertip,
+            },
         }
 
         return new_state, obs, reward, terminated, truncated, info

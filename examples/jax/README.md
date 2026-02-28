@@ -49,11 +49,14 @@ batch size 128:
 
 | Metric | PyTorch | JAX | Speedup |
 |--------|---------|-----|---------|
-| Single step | ~0.32 ms | ~0.11 ms | **~3x** |
-| Episode rollout | ~126 ms | ~50 ms | **~2.5x** |
-| Training step (fwd+bwd) | ~347 ms | ~185 ms | **~2x** |
+| Single step | ~0.38 ms | ~0.17 ms | **~2.2x** |
+| Episode rollout | ~153 ms | ~65 ms | **~2.4x** |
+| Training step (fwd+bwd) | ~427 ms | ~252 ms | **~1.7x** |
 
-For GPU acceleration with CUDA, speedups are expected to be significantly larger.
+Speedups increase with smaller policy networks: ~10.6x at hidden=32, ~4.4x at hidden=128.
+At hidden=256, JAX achieves ~20x on the physics simulation alone (<2 ms for 200 steps vs ~47 ms
+in PyTorch), but the GRU dominates total compute (~99%), limiting overall speedup to ~2-3x.
+On GPU (CUDA or Apple MPS), speedups are expected to be significantly larger.
 
 ## Quick Example
 

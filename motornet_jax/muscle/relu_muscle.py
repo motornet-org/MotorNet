@@ -7,7 +7,6 @@ A simplified muscle where force is proportional to activation.
 from typing import NamedTuple
 import jax
 import jax.numpy as jnp
-from jax import jit
 
 from motornet_jax.muscle.base import activation_ode, clip_activation
 from motornet_jax.types import MuscleState, GeometryState
@@ -64,7 +63,6 @@ class ReluMuscle:
         return self.params
 
     @staticmethod
-    @jit
     def get_initial_state(
         batch_size: int,
         geometry_state: GeometryState,
@@ -88,7 +86,6 @@ class ReluMuscle:
         )
 
     @staticmethod
-    @jit
     def ode(
         excitation: jnp.ndarray,
         muscle_state: MuscleState,
@@ -113,7 +110,6 @@ class ReluMuscle:
         )
 
     @staticmethod
-    @jit
     def integrate(
         dt: float,
         d_activation: jnp.ndarray,
@@ -143,7 +139,6 @@ class ReluMuscle:
         )
 
     @staticmethod
-    @jit
     def compute_force(
         muscle_state: MuscleState,
         params: ReluMuscleParams,

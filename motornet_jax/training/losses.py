@@ -3,11 +3,9 @@ Loss functions for motor control training.
 """
 
 import jax.numpy as jnp
-from jax import jit
 from typing import Dict, Optional
 
 
-@jit
 def position_loss(
     fingertip: jnp.ndarray,
     target: jnp.ndarray,
@@ -35,7 +33,6 @@ def position_loss(
     return jnp.mean(squared_error)
 
 
-@jit
 def velocity_loss(
     velocity: jnp.ndarray,
     target_velocity: Optional[jnp.ndarray] = None,
@@ -69,7 +66,6 @@ def velocity_loss(
     return jnp.mean(squared_error)
 
 
-@jit
 def effort_loss(
     actions: jnp.ndarray,
     weights: Optional[jnp.ndarray] = None,
@@ -95,7 +91,6 @@ def effort_loss(
     return jnp.mean(squared_action)
 
 
-@jit
 def smoothness_loss(
     actions: jnp.ndarray,
 ) -> jnp.ndarray:
@@ -115,7 +110,6 @@ def smoothness_loss(
     return jnp.mean(squared_diff)
 
 
-@jit
 def jerk_loss(
     positions: jnp.ndarray,
     dt: float = 0.01,

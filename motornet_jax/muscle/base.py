@@ -6,10 +6,8 @@ Contains shared functions for muscle activation dynamics and force computation.
 
 import jax
 import jax.numpy as jnp
-from jax import jit
 
 
-@jit
 def activation_ode(
     excitation: jnp.ndarray,
     activation: jnp.ndarray,
@@ -48,7 +46,6 @@ def activation_ode(
     return (excitation - activation) / tau
 
 
-@jit
 def clip_activation(
     activation: jnp.ndarray,
     min_activation: float = 0.001,

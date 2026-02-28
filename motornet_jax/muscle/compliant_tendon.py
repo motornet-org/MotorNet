@@ -7,7 +7,6 @@ Based on Kistemaker et al. (2010) with compliant tendon.
 from typing import NamedTuple, Tuple
 import jax
 import jax.numpy as jnp
-from jax import jit
 
 from motornet_jax.muscle.base import activation_ode, clip_activation
 from motornet_jax.types import MuscleState, GeometryState
@@ -129,7 +128,6 @@ class CompliantTendonMuscle:
         return self.params
 
     @staticmethod
-    @jit
     def get_initial_state(
         batch_size: int,
         geometry_state: GeometryState,
@@ -215,7 +213,6 @@ class CompliantTendonMuscle:
         )
 
     @staticmethod
-    @jit
     def _normalized_muscle_vel(
         fiber_length_n: jnp.ndarray,
         activation: jnp.ndarray,
@@ -284,7 +281,6 @@ class CompliantTendonMuscle:
         return nom / den
 
     @staticmethod
-    @jit
     def ode(
         excitation: jnp.ndarray,
         muscle_state: MuscleState,
@@ -341,7 +337,6 @@ class CompliantTendonMuscle:
         return d_activation, fiber_velocity_n
 
     @staticmethod
-    @jit
     def integrate(
         dt: float,
         d_activation: jnp.ndarray,
@@ -387,7 +382,6 @@ class CompliantTendonMuscle:
         )
 
     @staticmethod
-    @jit
     def compute_force(
         muscle_state: MuscleState,
         geometry_state: GeometryState,

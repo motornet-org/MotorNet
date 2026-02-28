@@ -11,8 +11,7 @@ This is the most commonly used arm model in motor control research.
 from typing import NamedTuple, Tuple, Optional
 import jax
 import jax.numpy as jnp
-from jax import jit, lax
-from functools import partial
+from jax import lax
 
 from motornet_jax.types import (
     JointState,
@@ -197,7 +196,6 @@ class Arm26:
         return self.params
 
     @staticmethod
-    @jit
     def compute_geometry(
         joint_state: JointState,
         params: Arm26Params,
@@ -245,7 +243,6 @@ class Arm26:
         )
 
     @staticmethod
-    @jit
     def activation_ode(
         excitation: jnp.ndarray,
         activation: jnp.ndarray,
@@ -274,7 +271,6 @@ class Arm26:
         return (excitation - activation) / tau
 
     @staticmethod
-    @jit
     def compute_muscle_force(
         activation: jnp.ndarray,
         geometry_state: GeometryState,
@@ -353,7 +349,6 @@ class Arm26:
         return force
 
     @staticmethod
-    @jit
     def compute_joint_torques(
         muscle_forces: jnp.ndarray,
         geometry_state: GeometryState,
@@ -386,7 +381,6 @@ class Arm26:
         return total_torques
 
     @staticmethod
-    @jit
     def step(
         state: EffectorState,
         action: jnp.ndarray,
@@ -450,19 +444,18 @@ class Arm26:
             fiber_velocity=new_geometry.musculotendon_velocity,
         )
 
-        # Compute cartesian state
-        new_cartesian = TwoDofArm.joint2cartesian(new_joint, params.skeleton)
+        # Compute fingertip position only (skip full FK with velocities)
+        new_fingertip = TwoDofArm.fingertip_position(new_joint, params.skeleton)
 
         return EffectorState(
             joint=new_joint,
-            cartesian=new_cartesian,
+            cartesian=CartesianState(position=new_fingertip, velocity=jnp.zeros_like(new_fingertip)),
             muscle=new_muscle,
             geometry=new_geometry,
-            fingertip=new_cartesian.position,
+            fingertip=new_fingertip,
         )
 
     @staticmethod
-    @partial(jit, static_argnums=(5,))
     def simulate(
         state: EffectorState,
         action: jnp.ndarray,

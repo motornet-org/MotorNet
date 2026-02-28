@@ -8,8 +8,6 @@ This is useful for testing and as a baseline model.
 from typing import NamedTuple, Tuple, Optional
 import jax
 import jax.numpy as jnp
-from jax import jit
-from functools import partial
 
 from motornet_jax.types import JointState, CartesianState
 
@@ -87,7 +85,6 @@ class PointMass:
         return self.params
 
     @staticmethod
-    @jit
     def forward_kinematics(
         joint_state: JointState,
         params: PointMassParams,
@@ -107,7 +104,6 @@ class PointMass:
         return joint_state.position, joint_state.velocity
 
     @staticmethod
-    @jit
     def inverse_kinematics(
         cartesian_state: CartesianState,
         params: PointMassParams,
@@ -129,7 +125,6 @@ class PointMass:
         )
 
     @staticmethod
-    @jit
     def compute_jacobian(
         joint_state: JointState,
         params: PointMassParams,
@@ -149,7 +144,6 @@ class PointMass:
         return jnp.tile(jnp.eye(params.space_dim), (batch_size, 1, 1))
 
     @staticmethod
-    @jit
     def inverse_dynamics(
         joint_state: JointState,
         forces: jnp.ndarray,
@@ -173,7 +167,6 @@ class PointMass:
         return acceleration
 
     @staticmethod
-    @jit
     def ode(
         joint_state: JointState,
         forces: jnp.ndarray,
@@ -194,7 +187,6 @@ class PointMass:
         return joint_state.velocity, acceleration
 
     @staticmethod
-    @jit
     def integrate(
         joint_state: JointState,
         forces: jnp.ndarray,
@@ -226,7 +218,6 @@ class PointMass:
         return JointState(position=new_pos, velocity=new_vel)
 
     @staticmethod
-    @jit
     def path2cartesian(
         path: jnp.ndarray,
         joint_state: JointState,

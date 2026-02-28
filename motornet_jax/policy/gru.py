@@ -77,6 +77,38 @@ class GRUPolicy(eqx.Module):
         # Output projection
         self.output_layer = eqx.nn.Linear(hidden_size, action_dim, key=keys[-1])
 
+    def _single_forward(
+        self,
+        obs_single: jnp.ndarray,
+        hidden_single: jnp.ndarray,
+    ) -> Tuple[jnp.ndarray, jnp.ndarray]:
+        """Forward pass for a single sample (no batch dim).
+
+        Args:
+            obs_single: Observation. Shape: (obs_dim,)
+            hidden_single: Hidden state. Shape: (n_layers, hidden_size)
+
+        Returns:
+            action: Action. Shape: (action_dim,)
+            new_hidden: Updated hidden state. Shape: (n_layers, hidden_size)
+        """
+        # Input projection with ReLU
+        x = jax.nn.relu(self.input_layer(obs_single))  # (hidden_size,)
+
+        # Process through GRU layers
+        new_hidden_list = []
+        for i, gru in enumerate(self.gru_layers):
+            h = hidden_single[i]  # (hidden_size,)
+            x = gru(x, h)  # (hidden_size,)
+            new_hidden_list.append(x)
+
+        new_hidden = jnp.stack(new_hidden_list, axis=0)  # (n_layers, hidden_size)
+
+        # Output projection with sigmoid for bounded actions
+        action = jax.nn.sigmoid(self.output_layer(x))  # (action_dim,)
+
+        return action, new_hidden
+
     def __call__(
         self,
         obs: jnp.ndarray,
@@ -92,10 +124,10 @@ class GRUPolicy(eqx.Module):
             action: Action. Shape: same batch dims as input + (action_dim,)
             new_hidden: Updated hidden state. Shape: same as input hidden.
         """
-        # Handle batched vs unbatched input
+        # Handle unbatched input
         batched = obs.ndim > 1
         if not batched:
-            obs = obs[None, :]  # Add batch dimension
+            obs = obs[None, :]
             if hidden is not None:
                 hidden = hidden[None, :, :]
 
@@ -105,23 +137,9 @@ class GRUPolicy(eqx.Module):
         if hidden is None:
             hidden = jnp.zeros((batch_size, self.n_gru_layers, self.hidden_size))
 
-        # Input projection with ReLU
-        x = jax.nn.relu(jax.vmap(self.input_layer)(obs))  # (batch, hidden_size)
+        # Single vmap over entire forward pass
+        action, new_hidden = jax.vmap(self._single_forward)(obs, hidden)
 
-        # Process through GRU layers
-        new_hidden_list = []
-        for i, gru in enumerate(self.gru_layers):
-            h = hidden[:, i, :]  # (batch, hidden_size)
-            # GRUCell expects (input, hidden) -> new_hidden
-            x = jax.vmap(gru)(x, h)  # (batch, hidden_size)
-            new_hidden_list.append(x)
-
-        new_hidden = jnp.stack(new_hidden_list, axis=1)  # (batch, n_layers, hidden_size)
-
-        # Output projection with sigmoid for bounded actions
-        action = jax.nn.sigmoid(jax.vmap(self.output_layer)(x))
-
-        # Remove batch dimension if input was unbatched
         if not batched:
             action = action[0]
             new_hidden = new_hidden[0]

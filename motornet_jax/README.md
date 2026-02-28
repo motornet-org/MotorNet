@@ -85,11 +85,29 @@ Benchmarked on Apple M4 Max (CPU) with the Arm26 effector, batch size 128, 200-s
 
 | Metric | PyTorch MotorNet | MotorNet-JAX | Speedup |
 |--------|------------------|--------------|---------|
-| Single step | ~0.32 ms | ~0.11 ms | **~3x** |
-| Episode rollout | ~126 ms | ~50 ms | **~2.5x** |
-| Training step (fwd+bwd) | ~347 ms | ~185 ms | **~2x** |
+| Single step | ~0.38 ms | ~0.17 ms | **~2.2x** |
+| Episode rollout | ~153 ms | ~65 ms | **~2.4x** |
+| Training step (fwd+bwd) | ~427 ms | ~252 ms | **~1.7x** |
 
-Speedups are expected to be larger on GPU with CUDA.
+Speedups increase with smaller policy networks (where Python loop overhead dominates):
+
+| GRU hidden size | Rollout speedup |
+|----------------|-----------------|
+| 32 | **~10.6x** |
+| 64 | **~5.2x** |
+| 128 | **~4.4x** |
+| 256 | **~2.9x** |
+
+**Component breakdown** (batch=128, hidden=256, 200-step episode rollout):
+
+| Component | PyTorch | JAX | Speedup |
+|-----------|---------|-----|---------|
+| Physics simulation only | ~47 ms | ~2 ms | **~20x** |
+| GRU policy only | ~68 ms | ~18 ms | **~3.5x** |
+
+At hidden=256 the GRU dominates total time. JAX achieves ~20x on the physics via `lax.scan` +
+XLA fusion, while the GRU speedup is bounded by BLAS throughput for sequential matmuls.
+Speedups are expected to be larger on GPU (CUDA or Apple MPS).
 
 ## Key Differences from PyTorch Version
 

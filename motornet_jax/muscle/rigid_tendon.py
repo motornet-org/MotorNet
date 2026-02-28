@@ -7,7 +7,6 @@ Based on Kistemaker et al. (2010) with rigid tendon assumption.
 from typing import NamedTuple, Tuple
 import jax
 import jax.numpy as jnp
-from jax import jit
 
 from motornet_jax.muscle.base import activation_ode, clip_activation
 from motornet_jax.types import MuscleState, GeometryState
@@ -125,7 +124,6 @@ class RigidTendonMuscle:
         return self.params
 
     @staticmethod
-    @jit
     def get_initial_state(
         batch_size: int,
         geometry_state: GeometryState,
@@ -157,7 +155,6 @@ class RigidTendonMuscle:
         )
 
     @staticmethod
-    @jit
     def ode(
         excitation: jnp.ndarray,
         muscle_state: MuscleState,
@@ -182,7 +179,6 @@ class RigidTendonMuscle:
         )
 
     @staticmethod
-    @jit
     def integrate(
         dt: float,
         d_activation: jnp.ndarray,
@@ -219,7 +215,6 @@ class RigidTendonMuscle:
         )
 
     @staticmethod
-    @jit
     def compute_force(
         muscle_state: MuscleState,
         geometry_state: GeometryState,

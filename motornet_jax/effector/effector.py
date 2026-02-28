@@ -11,8 +11,7 @@ This is the core simulation module that handles:
 from typing import NamedTuple, Tuple, List, Optional, Callable
 import jax
 import jax.numpy as jnp
-from jax import jit, lax
-from functools import partial
+from jax import lax
 
 from motornet_jax.types import (
     JointState,
@@ -177,7 +176,6 @@ class Effector:
         return self.params
 
     @staticmethod
-    @jit
     def compute_geometry(
         joint_state: JointState,
         effector_params: EffectorParams,
@@ -282,7 +280,6 @@ class Effector:
         )
 
     @staticmethod
-    @jit
     def compute_joint_torques(
         muscle_forces: jnp.ndarray,
         geometry_state: GeometryState,
