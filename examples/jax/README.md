@@ -44,12 +44,16 @@ This folder contains Jupyter notebook tutorials for MotorNet-JAX.
 
 ## Performance
 
-MotorNet-JAX achieves **50,000-100,000x speedup** over PyTorch MotorNet:
+Benchmarked on Apple M4 Max (CPU) with the Arm26 effector, 200-step episodes, GRU policy (hidden=256),
+batch size 128:
 
-| Metric | PyTorch | JAX |
-|--------|---------|-----|
-| Arm26 steps/sec | ~150 | ~11,000,000 |
-| TwoDofArm steps/sec | ~200 | ~87,000,000 |
+| Metric | PyTorch | JAX | Speedup |
+|--------|---------|-----|---------|
+| Single step | ~0.32 ms | ~0.11 ms | **~3x** |
+| Episode rollout | ~126 ms | ~50 ms | **~2.5x** |
+| Training step (fwd+bwd) | ~347 ms | ~185 ms | **~2x** |
+
+For GPU acceleration with CUDA, speedups are expected to be significantly larger.
 
 ## Quick Example
 
