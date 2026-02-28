@@ -81,11 +81,15 @@ motornet_jax/
 
 ## Performance Comparison
 
+Benchmarked on Apple M4 Max (CPU) with the Arm26 effector, batch size 128, 200-step episodes, GRU policy (hidden=256):
+
 | Metric | PyTorch MotorNet | MotorNet-JAX | Speedup |
 |--------|------------------|--------------|---------|
-| Single step (batch=64) | ~2ms | ~0.02ms | **100x** |
-| Episode rollout (200 steps) | ~400ms | ~5ms | **80x** |
-| Training throughput | ~150 steps/s | ~10,000 steps/s | **66x** |
+| Single step | ~0.32 ms | ~0.11 ms | **~3x** |
+| Episode rollout | ~126 ms | ~50 ms | **~2.5x** |
+| Training step (fwd+bwd) | ~347 ms | ~185 ms | **~2x** |
+
+Speedups are expected to be larger on GPU with CUDA.
 
 ## Key Differences from PyTorch Version
 
