@@ -1,7 +1,6 @@
 import torch as th
 import numpy as np
 from typing import Union
-from torch.nn.parameter import Parameter
 
 
 class Skeleton(th.nn.Module):
@@ -101,10 +100,12 @@ class Skeleton(th.nn.Module):
         degrees-of-freedom arm, we would have `n=2`.
     """
     
-    self.pos_upper_bound = Parameter(th.tensor(pos_upper_bound, dtype=th.float32).reshape(1, -1), requires_grad=False)
-    self.pos_lower_bound = Parameter(th.tensor(pos_lower_bound, dtype=th.float32).reshape(1, -1), requires_grad=False)
-    self.vel_upper_bound = Parameter(th.tensor(vel_upper_bound, dtype=th.float32).reshape(1, -1), requires_grad=False)
-    self.vel_lower_bound = Parameter(th.tensor(vel_lower_bound, dtype=th.float32).reshape(1, -1), requires_grad=False)
+    for _attr in ('pos_upper_bound', 'pos_lower_bound', 'vel_upper_bound', 'vel_lower_bound'):
+      self.__dict__.pop(_attr, None)
+    self.register_buffer('pos_upper_bound', th.as_tensor(pos_upper_bound, dtype=th.float32).reshape(1, -1))
+    self.register_buffer('pos_lower_bound', th.as_tensor(pos_lower_bound, dtype=th.float32).reshape(1, -1))
+    self.register_buffer('vel_upper_bound', th.as_tensor(vel_upper_bound, dtype=th.float32).reshape(1, -1))
+    self.register_buffer('vel_lower_bound', th.as_tensor(vel_lower_bound, dtype=th.float32).reshape(1, -1))
     self.dt = timestep
     self.clip_position = self.clip_method
     self.built = True
@@ -279,7 +280,7 @@ class PointMass(Skeleton):
     self.mass = mass
     # to speed up runtime during `self._path2cartesian` method
     dpos_ddof = th.nn.functional.one_hot(th.arange(0, self.dof) % self.dof).to(th.float32)[None, :, :, None]
-    self.dpos_ddof = Parameter(dpos_ddof, requires_grad=False)
+    self.register_buffer('dpos_ddof', dpos_ddof)
 
   def _ode(self, inputs, joint_state, endpoint_load):
     return inputs + endpoint_load
@@ -366,8 +367,8 @@ class TwoDofArm(Skeleton):
     inertia_12_m = self.m2 * self.L1 * self.L2g
     inertia_c = np.array([[[inertia_11_c, inertia_12_c], [inertia_12_c, inertia_22_c]]]).astype(np.float32)
     inertia_m = np.array([[[inertia_11_m, inertia_12_m], [inertia_12_m, 0.]]]).astype(np.float32)
-    self.inertia_m = Parameter(th.tensor(inertia_m.reshape((1, 2, 2)), dtype=th.float32), requires_grad=False)
-    self.inertia_c = Parameter(th.tensor(inertia_c.reshape((1, 2, 2)), dtype=th.float32), requires_grad=False)
+    self.register_buffer('inertia_m', th.tensor(inertia_m.reshape((1, 2, 2)), dtype=th.float32))
+    self.register_buffer('inertia_c', th.tensor(inertia_c.reshape((1, 2, 2)), dtype=th.float32))
 
     self.coriolis_1 = - self.m2 * self.L1 * self.L2g
     self.coriolis_2 = self.m2 * self.L1 * self.L2g

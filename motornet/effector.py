@@ -2,7 +2,6 @@ import torch as th
 import numpy as np
 from typing import Union, Any
 from gymnasium.utils import seeding
-from torch.nn.parameter import Parameter
 from motornet.skeleton import TwoDofArm, PointMass
 from motornet.muscle import CompliantTendonHillMuscle, ReluMuscle
 
@@ -57,7 +56,7 @@ class Effector(th.nn.Module):
 
     self._device = th.device('cpu')
     self.__name__ = name
-    self.damping = Parameter(th.tensor(damping, dtype=th.float32), requires_grad=False)
+    self.register_buffer('damping', th.tensor(damping, dtype=th.float32))
     self.skeleton = skeleton.to(self.device)
     self.dof = self.skeleton.dof
     self.space_dim = self.skeleton.space_dim
@@ -81,12 +80,12 @@ class Effector(th.nn.Module):
     pos_range = th.tensor(pos_bounds[:, 0] - pos_bounds[:, 1], dtype=th.float32)
     vel_range = th.tensor(vel_bounds[:, 0] - vel_bounds[:, 1], dtype=th.float32)
     
-    self.pos_upper_bound = pos_bounds[:, 1]
-    self.pos_lower_bound = pos_bounds[:, 0]
-    self.vel_upper_bound = vel_bounds[:, 1]
-    self.vel_lower_bound = vel_bounds[:, 0]
-    self.pos_range_bound = Parameter(pos_range, requires_grad=False)
-    self.vel_range_bound = Parameter(vel_range, requires_grad=False)
+    self.register_buffer('pos_upper_bound', th.tensor(pos_bounds[:, 1], dtype=th.float32))
+    self.register_buffer('pos_lower_bound', th.tensor(pos_bounds[:, 0], dtype=th.float32))
+    self.register_buffer('vel_upper_bound', th.tensor(vel_bounds[:, 1], dtype=th.float32))
+    self.register_buffer('vel_lower_bound', th.tensor(vel_bounds[:, 0], dtype=th.float32))
+    self.register_buffer('pos_range_bound', pos_range)
+    self.register_buffer('vel_range_bound', vel_range)
 
     self.skeleton.build(
       timestep=self.dt,
@@ -121,16 +120,16 @@ class Effector(th.nn.Module):
     self._muscle_transitions = None
     self._row_splits = None
     # these attributes will hold tensor versions of the above
-    self.path_fixation_body = None
-    self.path_coordinates = None
-    self.muscle_index = None
-    self.muscle_transitions = None
-    self.row_splits = None
+    self.register_buffer('path_fixation_body', None)
+    self.register_buffer('path_coordinates', None)
+    self.register_buffer('muscle_index', None)
+    self.register_buffer('muscle_transitions', None)
+    self.register_buffer('row_splits', None)
     self.section_splits = None
     self._muscle_config_is_empty = True
 
-    self.default_endpoint_load = Parameter(th.zeros((1, self.skeleton.space_dim)), requires_grad=False)
-    self.default_joint_load = Parameter(th.zeros((1, self.skeleton.dof)), requires_grad=False)
+    self.register_buffer('default_endpoint_load', th.zeros((1, self.skeleton.space_dim)))
+    self.register_buffer('default_joint_load', th.zeros((1, self.skeleton.dof)))
     
     if self.integration_method == 'euler':
       self._integrate = self._euler
@@ -258,11 +257,11 @@ class Effector(th.nn.Module):
     n_total_points = np.array([len(self._muscle_index)])
     self._row_splits = np.concatenate([np.zeros(1), np.diff(self._muscle_index).nonzero()[0] + 1, n_total_points-1])
 
-    self.path_fixation_body = Parameter(th.tensor(self._path_fixation_body, dtype=th.float32), requires_grad=False)
-    self.path_coordinates = Parameter(th.tensor(self._path_coordinates, dtype=th.float32), requires_grad=False)
-    self.muscle_index = Parameter(th.tensor(self._muscle_index, dtype=th.float32), requires_grad=False)
-    self.muscle_transitions = Parameter(th.tensor(self._muscle_transitions, dtype=th.bool), requires_grad=False)
-    self.row_splits = Parameter(th.tensor(self._row_splits, dtype=th.float32), requires_grad=False)
+    self.register_buffer('path_fixation_body', th.tensor(self._path_fixation_body, dtype=th.float32))
+    self.register_buffer('path_coordinates', th.tensor(self._path_coordinates, dtype=th.float32))
+    self.register_buffer('muscle_index', th.tensor(self._muscle_index, dtype=th.float32))
+    self.register_buffer('muscle_transitions', th.tensor(self._muscle_transitions, dtype=th.bool))
+    self.register_buffer('row_splits', th.tensor(self._row_splits, dtype=th.float32))
     self.section_splits = np.diff(self._row_splits).astype(int).tolist()
 
     # kwargs loop
@@ -538,10 +537,10 @@ class Effector(th.nn.Module):
     assert pos.shape == vel.shape
     assert pos.shape[1] == self.dof
     assert len(pos.shape) == 2
-    assert np.all(pos >= self.pos_lower_bound)
-    assert np.all(pos <= self.pos_upper_bound)
-    assert np.all(vel >= self.vel_lower_bound)
-    assert np.all(vel <= self.vel_upper_bound)
+    assert np.all(pos >= self.pos_lower_bound.cpu().numpy())
+    assert np.all(pos <= self.pos_upper_bound.cpu().numpy())
+    assert np.all(vel >= self.vel_lower_bound.cpu().numpy())
+    assert np.all(vel <= self.vel_upper_bound.cpu().numpy())
 
     vel = th.tensor(vel, dtype=th.float32).to(self.device)
     pos = th.tensor(pos, dtype=th.float32).to(self.device)
@@ -726,10 +725,10 @@ class RigidTendonArm26(Effector):
     a1 = [-.03, .03, 0, 0, -.03, .03, 0, 0, -.014, .025, -.016, .03]
     a2 = [0, 0, 0, 0, 0, 0, 0, 0, -4e-3, -2.2e-3, -5.7e-3, -3.2e-3]
     a3 = [np.pi / 2, 0.]
-    self.a0 = Parameter(th.tensor(np.array(a0).reshape((1, 1, 6)), dtype=th.float32), requires_grad=False)
-    self.a1 = Parameter(th.tensor(np.array(a1).reshape((1, 2, 6)), dtype=th.float32), requires_grad=False)
-    self.a2 = Parameter(th.tensor(np.array(a2).reshape((1, 2, 6)), dtype=th.float32), requires_grad=False)
-    self.a3 = Parameter(th.tensor(np.array(a3).reshape((1, 2, 1)), dtype=th.float32), requires_grad=False)
+    self.register_buffer('a0', th.tensor(np.array(a0).reshape((1, 1, 6)), dtype=th.float32))
+    self.register_buffer('a1', th.tensor(np.array(a1).reshape((1, 2, 6)), dtype=th.float32))
+    self.register_buffer('a2', th.tensor(np.array(a2).reshape((1, 2, 6)), dtype=th.float32))
+    self.register_buffer('a3', th.tensor(np.array(a3).reshape((1, 2, 1)), dtype=th.float32))
 
   def _get_geometry(self, joint_state):
     old_pos, old_vel = joint_state[:, :, None].chunk(2, dim=1)
@@ -779,4 +778,4 @@ class CompliantTendonArm26(RigidTendonArm26):
     # Adjust some parameters to relax overly stiff tendon values.
     # This should greatly help with stability during numerical integration.
     a0 = [0.182, 0.2362, 0.2859, 0.2355, 0.3329, 0.2989]
-    self.a0 = Parameter(th.tensor(np.array(a0).reshape((1, 1, 6)), dtype=th.float32), requires_grad=False)
+    self.register_buffer('a0', th.tensor(np.array(a0).reshape((1, 1, 6)), dtype=th.float32))
