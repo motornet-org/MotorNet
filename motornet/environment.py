@@ -88,9 +88,14 @@ class Environment(gym.Env, torch.nn.Module):
     vision_delay = self.dt if vision_delay is None else vision_delay
 
     def floating_precision(x): return x < np.finfo(x).resolution
-    assert floating_precision(np.mod(vision_delay / self.dt, 1.)), f"delay was {vision_delay} and dt was {self.dt}"
-    assert floating_precision(np.mod(proprioception_delay / self.dt, 1.)), f"delay was {proprioception_delay} and " + \
-      f"dt was {self.dt}"
+    if not floating_precision(np.mod(vision_delay / self.dt, 1.)):
+      raise ValueError(
+        f"vision_delay={vision_delay} is not an integer multiple of dt={self.dt}."
+      )
+    if not floating_precision(np.mod(proprioception_delay / self.dt, 1.)):
+      raise ValueError(
+        f"proprioception_delay={proprioception_delay} is not an integer multiple of dt={self.dt}."
+      )
 
     self.proprioception_delay = int(proprioception_delay / self.dt)
     self.vision_delay = int(vision_delay / self.dt)

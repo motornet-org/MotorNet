@@ -338,7 +338,11 @@ class MujocoHillMuscle(Muscle):
     
     def to_tensor(x):
       tensor = torch.tensor(x, dtype=torch.float32).reshape((1, 1, -1))
-      assert tensor.numel() == 1 or tensor.numel() == self.n_muscles
+      if tensor.numel() != 1 and tensor.numel() != self.n_muscles:
+        raise ValueError(
+          f"Expected a scalar or a vector of length n_muscles={self.n_muscles}, "
+          f"got {tensor.numel()} elements."
+        )
       return tensor
 
     self.register_buffer('max_iso_force', to_tensor(max_isometric_force))

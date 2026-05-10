@@ -242,8 +242,16 @@ class Effector(torch.nn.Module):
     path_fixation_body = np.array(path_fixation_body).astype('float32').reshape((1, 1, -1))
     n_points = path_fixation_body.size
     path_coordinates = np.array(path_coordinates).astype('float32').T[np.newaxis, :, :]
-    assert path_coordinates.shape[1] == self.skeleton.space_dim
-    assert path_coordinates.shape[2] == n_points
+    if path_coordinates.shape[1] != self.skeleton.space_dim:
+      raise ValueError(
+        f"path_coordinates has {path_coordinates.shape[1]} coordinate dimensions "
+        f"but skeleton expects space_dim={self.skeleton.space_dim}."
+      )
+    if path_coordinates.shape[2] != n_points:
+      raise ValueError(
+        f"path_coordinates has {path_coordinates.shape[2]} points "
+        f"but path_fixation_body specifies {n_points} points."
+      )
     self.n_muscles += 1
     self.input_dim += self.muscle.input_dim
 
@@ -534,13 +542,30 @@ class Effector(torch.nn.Module):
     if len(vel.shape) == 1:
         vel = vel.reshape((1, -1))
 
-    assert pos.shape == vel.shape
-    assert pos.shape[1] == self.dof
-    assert len(pos.shape) == 2
-    assert np.all(pos >= self.pos_lower_bound.cpu().numpy())
-    assert np.all(pos <= self.pos_upper_bound.cpu().numpy())
-    assert np.all(vel >= self.vel_lower_bound.cpu().numpy())
-    assert np.all(vel <= self.vel_upper_bound.cpu().numpy())
+    if pos.shape != vel.shape:
+      raise ValueError(
+        f"position and velocity must have the same shape, got {pos.shape} and {vel.shape}."
+      )
+    if len(pos.shape) != 2:
+      raise ValueError(
+        f"position must be a 2D array of shape (batch_size, dof), got shape {pos.shape}."
+      )
+    if pos.shape[1] != self.dof:
+      raise ValueError(
+        f"position has {pos.shape[1]} columns but effector has dof={self.dof}."
+      )
+    lb_pos = self.pos_lower_bound.cpu().numpy()
+    ub_pos = self.pos_upper_bound.cpu().numpy()
+    lb_vel = self.vel_lower_bound.cpu().numpy()
+    ub_vel = self.vel_upper_bound.cpu().numpy()
+    if not np.all(pos >= lb_pos):
+      raise ValueError(f"position values below lower bound: min={pos.min()}, lower_bound={lb_pos.min()}.")
+    if not np.all(pos <= ub_pos):
+      raise ValueError(f"position values above upper bound: max={pos.max()}, upper_bound={ub_pos.max()}.")
+    if not np.all(vel >= lb_vel):
+      raise ValueError(f"velocity values below lower bound: min={vel.min()}, lower_bound={lb_vel.min()}.")
+    if not np.all(vel <= ub_vel):
+      raise ValueError(f"velocity values above upper bound: max={vel.max()}, upper_bound={ub_vel.max()}.")
 
     vel = torch.tensor(vel, dtype=torch.float32).to(self.device)
     pos = torch.tensor(pos, dtype=torch.float32).to(self.device)
