@@ -465,8 +465,8 @@ class TwoDofArm(Skeleton):
     sa = torch.sin(ang)
 
     # rotation matrix to transform the bone-relative coordinates into global coordinates
-    rot1 = torch.concat([ca, sa], dim=1).reshape(-1, 2, n_points)
-    rot2 = torch.concat([-sa, ca], dim=1).reshape(-1, 2, n_points)
+    rot1 = torch.cat([ca, sa], dim=1).reshape(-1, 2, n_points)
+    rot2 = torch.cat([-sa, ca], dim=1).reshape(-1, 2, n_points)
 
     # derivative of each fixation point's position wrt the angle of the bone they are fixed on
     dx_da = torch.sum(-path_coordinates * rot2, dim=1, keepdims=True)
@@ -482,16 +482,16 @@ class TwoDofArm(Skeleton):
     dx_da2 = torch.where(path_fixation_body == 2., dx_da, 0.)
     dy_da2 = torch.where(path_fixation_body == 2., dy_da, 0.)
 
-    dxy_da1 = torch.concat([dx_da1, dy_da1], dim=1)
-    dxy_da2 = torch.concat([dx_da2, dy_da2], dim=1)
-    dxy_da = torch.concat([dxy_da1[:, :, None, :], dxy_da2[:, :, None, :]], dim=2)
+    dxy_da1 = torch.cat([dx_da1, dy_da1], dim=1)
+    dxy_da2 = torch.cat([dx_da2, dy_da2], dim=1)
+    dxy_da = torch.cat([dxy_da1[:, :, None, :], dxy_da2[:, :, None, :]], dim=2)
 
     sho_vel_3d = joint_vel[:, 0, None, None]
     elb_vel_3d = joint_vel[:, 1, None, None] + sho_vel_3d
     dxy_dt = dxy_da1 * sho_vel_3d + dxy_da2 * elb_vel_3d # by virtue of the chain rule
 
-    bone_origin = torch.where(path_fixation_body == 2, torch.concat([elb_x, elb_y], dim=1), 0.)
-    xy = torch.concat([dy_da, -dx_da], dim=1) + bone_origin
+    bone_origin = torch.where(path_fixation_body == 2, torch.cat([elb_x, elb_y], dim=1), 0.)
+    xy = torch.cat([dy_da, -dx_da], dim=1) + bone_origin
     return xy, dxy_dt, dxy_da
 
   def get_save_config(self):

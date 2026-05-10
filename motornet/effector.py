@@ -393,7 +393,7 @@ class Effector(torch.nn.Module):
     moment_arms = torch.stack(moment_arms_as_list, dim=-1)
 
     # pack all this into one state array and flip the dimensions back (batch_size * n_features * n_muscles)
-    geometry_state = torch.concat([musculotendon_len, musculotendon_vel, moment_arms], dim=1)
+    geometry_state = torch.cat([musculotendon_len, musculotendon_vel, moment_arms], dim=1)
     return geometry_state
   
   def _set_state(self, states):

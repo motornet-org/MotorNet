@@ -815,7 +815,7 @@ class CompliantTendonHillMuscle(RigidTendonHillMuscle):
 
     muscle_vel = muscle_vel_n * self.vmax
     force = flse * self.max_iso_force
-    return torch.concat([activation, new_muscle_len, muscle_vel, flpe, flse, active_force, force], dim=1)
+    return torch.cat([activation, new_muscle_len, muscle_vel, flpe, flse, active_force, force], dim=1)
 
   def _ode(self, excitation, muscle_state):
     activation = muscle_state[:, 0:1, :]
@@ -823,7 +823,7 @@ class CompliantTendonHillMuscle(RigidTendonHillMuscle):
     muscle_len_n = muscle_state[:, 1:2, :] / self.l0_ce
     active_force = muscle_state[:, 5:6, :]
     new_muscle_vel_n = self._normalized_muscle_vel(muscle_len_n, activation, active_force)
-    return torch.concat([d_activation, new_muscle_vel_n], dim=1)
+    return torch.cat([d_activation, new_muscle_vel_n], dim=1)
 
   def _get_initial_muscle_state(self, batch_size, geometry_state):
     musculotendon_len = geometry_state[:, 0:1, :]
@@ -863,8 +863,8 @@ class CompliantTendonHillMuscle(RigidTendonHillMuscle):
     active_force = torch.clip(flse - flpe, min=0.)
 
     muscle_vel_n = self._normalized_muscle_vel(muscle_len / self.l0_ce, activation, active_force)
-    muscle_state = torch.concat([activation, muscle_len], dim=1)
-    state_derivative = torch.concat([d_activation, muscle_vel_n], dim=1)
+    muscle_state = torch.cat([activation, muscle_len], dim=1)
+    state_derivative = torch.cat([d_activation, muscle_vel_n], dim=1)
 
     return self.integrate(self.dt, state_derivative, muscle_state, geometry_state)
 

@@ -138,7 +138,7 @@ class Environment(gym.Env, torch.nn.Module):
     """
     mlen = self.states["muscle"][:, 1:2, :] / self.muscle.l0_ce
     mvel = self.states["muscle"][:, 2:3, :] / self.muscle.vmax
-    prop = torch.concatenate([mlen, mvel], dim=-1).squeeze(dim=1)
+    prop = torch.cat([mlen, mvel], dim=-1).squeeze(dim=1)
     return self.apply_noise(prop, self.proprioception_noise)
 
   def get_vision(self) -> torch.Tensor:
