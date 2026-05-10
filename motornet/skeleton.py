@@ -4,9 +4,6 @@ from typing import Union
 from torch.nn.parameter import Parameter
 
 
-DEVICE = th.device("cpu")
-
-
 class Skeleton(th.nn.Module):
   """Base class for `Skeleton` objects.
 
@@ -45,6 +42,7 @@ class Skeleton(th.nn.Module):
 
     super().__init__()
 
+    self._device = th.device('cpu')
     self.__name__ = name
     self.dof = dof
     self.space_dim = space_dim
@@ -246,15 +244,18 @@ class Skeleton(th.nn.Module):
     """
     self.__setattr__(name, value)
 
+  def to(self, *args, **kwargs):
+    if args and isinstance(args[0], (str, th.device)):
+      self._device = th.device(args[0])
+    elif args and isinstance(args[0], th.Tensor):
+      self._device = args[0].device
+    elif 'device' in kwargs:
+      self._device = th.device(kwargs['device'])
+    return super().to(*args, **kwargs)
+
   @property
   def device(self):
-    """Returns the device of the first parameter in the module or the 1st CPU device if no parameter is yet declared.
-    The parameter search includes children modules.
-    """
-    try:
-      return next(self.parameters()).device
-    except:
-      return DEVICE
+    return self._device
 
 
 class PointMass(Skeleton):

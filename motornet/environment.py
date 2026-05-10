@@ -5,9 +5,6 @@ from gymnasium.utils import seeding
 from typing import Any
 
 
-DEVICE = th.device("cpu")
-
-
 class Environment(gym.Env, th.nn.Module):
   """Base class for environments.
 
@@ -58,6 +55,7 @@ class Environment(gym.Env, th.nn.Module):
     
     super().__init__(**kwargs)
 
+    self._device = th.device('cpu')
     self.__name__ = name
     self.effector = effector.to(self.device)
     self.dt = self.effector.dt
@@ -429,16 +427,19 @@ class Environment(gym.Env, th.nn.Module):
     cfg["effector"] = self.effector.get_save_config()
     return cfg
   
+  def to(self, *args, **kwargs):
+    if args and isinstance(args[0], (str, th.device)):
+      self._device = th.device(args[0])
+    elif args and isinstance(args[0], th.Tensor):
+      self._device = args[0].device
+    elif 'device' in kwargs:
+      self._device = th.device(kwargs['device'])
+    return super().to(*args, **kwargs)
+
   @property
   def device(self):
-    """Returns the device of the first parameter in the module or the 1st CPU device if no parameter is yet declared.
-    The parameter search includes children modules.
-    """
-    try:
-      return next(self.parameters()).device
-    except:
-      return DEVICE
-    
+    return self._device
+
 
 class RandomTargetReach(Environment):
   """A reach to a random target from a random starting position.

@@ -3,9 +3,6 @@ import numpy as np
 from torch.nn.parameter import Parameter
 
 
-DEVICE = th.device("cpu")
-
-
 class Muscle(th.nn.Module):
   """Base class for `Muscle` objects. If a effector contains several muscles, this object will contain all of
   those in a vectorized format, meaning for any given effector there will always be only `one` muscle object, 
@@ -39,6 +36,7 @@ class Muscle(th.nn.Module):
     
     super().__init__()
 
+    self._device = th.device('cpu')
     self.input_dim = input_dim
     self.state_name = []
     self.output_dim = output_dim
@@ -59,15 +57,18 @@ class Muscle(th.nn.Module):
   def clip_activation(self, a):
     return th.clamp(a, self.min_activation, 1.)
   
+  def to(self, *args, **kwargs):
+    if args and isinstance(args[0], (str, th.device)):
+      self._device = th.device(args[0])
+    elif args and isinstance(args[0], th.Tensor):
+      self._device = args[0].device
+    elif 'device' in kwargs:
+      self._device = th.device(kwargs['device'])
+    return super().to(*args, **kwargs)
+
   @property
   def device(self):
-    """Returns the device of the first parameter in the module or the 1st CPU device if no parameter is yet declared.
-    The parameter search includes children modules.
-    """
-    try:
-      return next(self.parameters()).device
-    except:
-      return DEVICE
+    return self._device
 
   def build(self, timestep, max_isometric_force, **kwargs):
     """Build the muscle given parameters from the ``motornet.effector.Effector`` wrapper object. This should be 

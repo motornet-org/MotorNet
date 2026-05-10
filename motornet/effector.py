@@ -7,9 +7,6 @@ from motornet.skeleton import TwoDofArm, PointMass
 from motornet.muscle import CompliantTendonHillMuscle, ReluMuscle
 
 
-DEVICE = th.device("cpu")
-
-
 class Effector(th.nn.Module):
   """Base class for `Effector` objects.
 
@@ -58,6 +55,7 @@ class Effector(th.nn.Module):
     
     super().__init__()
 
+    self._device = th.device('cpu')
     self.__name__ = name
     self.damping = Parameter(th.tensor(damping, dtype=th.float32), requires_grad=False)
     self.skeleton = skeleton.to(self.device)
@@ -206,15 +204,18 @@ class Effector(th.nn.Module):
   def np_random(self, rng: np.random.Generator):
     self._np_random = rng
 
+  def to(self, *args, **kwargs):
+    if args and isinstance(args[0], (str, th.device)):
+      self._device = th.device(args[0])
+    elif args and isinstance(args[0], th.Tensor):
+      self._device = args[0].device
+    elif 'device' in kwargs:
+      self._device = th.device(kwargs['device'])
+    return super().to(*args, **kwargs)
+
   @property
   def device(self):
-    """Returns the device of the first parameter in the module or the 1st CPU device if no parameter is yet declared.
-    The parameter search includes children modules.
-    """
-    try:
-      return next(self.parameters()).device
-    except:
-      return DEVICE
+    return self._device
 
   def add_muscle(self, path_fixation_body: list, path_coordinates: list, name: str = None, **kwargs):
     """Adds a muscle to the effector.
