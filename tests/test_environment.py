@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-import torch as th
+import torch
 
 from motornet.effector import ReluPointMass24, RigidTendonArm26
 from motornet.environment import Environment, RandomTargetReach
@@ -24,7 +24,7 @@ class TestEnvironmentReset:
 
     def test_obs_is_tensor_in_differentiable_mode(self, base_env):
         obs, _ = base_env.reset(options={"deterministic": True})
-        assert th.is_tensor(obs)
+        assert torch.is_tensor(obs)
 
     def test_obs_shape_matches_observation_space(self, base_env):
         obs, _ = base_env.reset(options={"batch_size": 5, "deterministic": True})
@@ -48,7 +48,7 @@ class TestEnvironmentReset:
 
     def test_elapsed_reset_to_zero(self, base_env):
         base_env.reset()
-        base_env.step(th.zeros(1, base_env.effector.n_muscles))
+        base_env.step(torch.zeros(1, base_env.effector.n_muscles))
         base_env.reset()
         assert base_env.elapsed == 0.0
 
@@ -60,14 +60,14 @@ class TestEnvironmentReset:
     def test_seeded_reset_is_reproducible(self, base_env):
         obs_a, _ = base_env.reset(seed=42, options={"deterministic": True})
         obs_b, _ = base_env.reset(seed=42, options={"deterministic": True})
-        assert th.allclose(obs_a, obs_b)
+        assert torch.allclose(obs_a, obs_b)
 
     def test_different_seeds_give_different_states(self, base_env):
         base_env.reset(seed=0)
         state_0 = base_env.states["joint"].clone()
         base_env.reset(seed=99)
         state_99 = base_env.states["joint"].clone()
-        assert not th.allclose(state_0, state_99)
+        assert not torch.allclose(state_0, state_99)
 
     def test_obs_buffer_initialized_at_reset(self, base_env):
         base_env.reset(options={"deterministic": True})
@@ -79,26 +79,26 @@ class TestEnvironmentStep:
 
     def test_step_returns_five_tuple(self, base_env):
         base_env.reset(options={"deterministic": True})
-        action = th.zeros(1, base_env.effector.n_muscles)
+        action = torch.zeros(1, base_env.effector.n_muscles)
         result = base_env.step(action)
         assert len(result) == 5
 
     def test_step_obs_shape(self, base_env):
         base_env.reset(options={"batch_size": 3, "deterministic": True})
-        action = th.zeros(3, base_env.effector.n_muscles)
+        action = torch.zeros(3, base_env.effector.n_muscles)
         obs, reward, terminated, truncated, info = base_env.step(action)
         assert obs.shape == (3, base_env.observation_space.shape[0])
 
     def test_step_terminated_false_before_max_duration(self, base_env):
         base_env.reset(options={"deterministic": True})
-        action = th.zeros(1, base_env.effector.n_muscles)
+        action = torch.zeros(1, base_env.effector.n_muscles)
         _, _, terminated, _, _ = base_env.step(action)
         assert not terminated  # one step is far from max duration
 
     def test_step_terminated_true_at_max_duration(self):
         env = Environment(effector=ReluPointMass24(), max_ep_duration=0.02)
         env.reset(options={"deterministic": True})
-        action = th.zeros(1, env.effector.n_muscles)
+        action = torch.zeros(1, env.effector.n_muscles)
         n_steps = int(0.02 / env.dt)
         terminated = False
         for _ in range(n_steps):
@@ -107,7 +107,7 @@ class TestEnvironmentStep:
 
     def test_elapsed_increments_each_step(self, base_env):
         base_env.reset(options={"deterministic": True})
-        action = th.zeros(1, base_env.effector.n_muscles)
+        action = torch.zeros(1, base_env.effector.n_muscles)
         base_env.step(action)
         assert base_env.elapsed == pytest.approx(base_env.dt)
         base_env.step(action)
@@ -115,23 +115,23 @@ class TestEnvironmentStep:
 
     def test_step_info_contains_states(self, base_env):
         base_env.reset(options={"deterministic": True})
-        action = th.zeros(1, base_env.effector.n_muscles)
+        action = torch.zeros(1, base_env.effector.n_muscles)
         _, _, _, _, info = base_env.step(action)
         assert 'states' in info
 
     def test_step_no_nan_over_many_steps(self, base_env):
         base_env.reset(seed=0, options={"deterministic": True})
-        action = th.ones(1, base_env.effector.n_muscles) * 0.5
+        action = torch.ones(1, base_env.effector.n_muscles) * 0.5
         for _ in range(100):
             obs, _, _, _, _ = base_env.step(action, deterministic=True)
-        assert not th.isnan(obs).any()
+        assert not torch.isnan(obs).any()
 
     def test_differentiable_mode_returns_tensor(self, base_env):
         assert base_env.differentiable is True
         base_env.reset(options={"deterministic": True})
-        action = th.zeros(1, base_env.effector.n_muscles)
+        action = torch.zeros(1, base_env.effector.n_muscles)
         obs, _, _, _, _ = base_env.step(action)
-        assert th.is_tensor(obs)
+        assert torch.is_tensor(obs)
 
     def test_non_differentiable_mode_returns_numpy(self):
         env = Environment(effector=ReluPointMass24(), differentiable=False)
@@ -182,14 +182,14 @@ class TestObsBuffer:
         env.reset(seed=0, options={"deterministic": True})
         prop_at_reset = env.obs_buffer["proprioception"][0].clone()
 
-        action = th.ones(1, env.effector.n_muscles) * 0.8
+        action = torch.ones(1, env.effector.n_muscles) * 0.8
         # After 3 steps, proprioception in obs[0] should still be the initial value
         # (because the buffer is 5 steps deep)
         for _ in range(3):
             env.step(action, deterministic=True)
 
         prop_in_obs = env.obs_buffer["proprioception"][0]
-        assert th.allclose(prop_in_obs, prop_at_reset)
+        assert torch.allclose(prop_in_obs, prop_at_reset)
 
 
 class TestObsNoise:
@@ -198,14 +198,14 @@ class TestObsNoise:
         env = Environment(effector=ReluPointMass24(), obs_noise=1.0)
         obs_a, _ = env.reset(seed=42, options={"deterministic": True})
         obs_b, _ = env.reset(seed=42, options={"deterministic": True})
-        assert th.allclose(obs_a, obs_b)
+        assert torch.allclose(obs_a, obs_b)
 
     def test_obs_noise_produces_different_obs_than_deterministic(self):
         env = Environment(effector=ReluPointMass24(), obs_noise=1.0)
         obs_det, _ = env.reset(seed=0, options={"deterministic": True})
         obs_noisy, _ = env.reset(seed=0, options={"deterministic": False})
         # With std=1.0 noise, the two observations should differ
-        assert not th.allclose(obs_det, obs_noisy)
+        assert not torch.allclose(obs_det, obs_noisy)
 
     def test_action_space_matches_n_muscles(self, base_env):
         assert base_env.action_space.shape[0] == base_env.effector.n_muscles
@@ -216,15 +216,15 @@ class TestObsNoise:
 
     def test_apply_noise_adds_noise(self, base_env):
         base_env.reset(seed=0)
-        loc = th.zeros(1, 4)
+        loc = torch.zeros(1, 4)
         noisy = base_env.apply_noise(loc, noise=[1.0, 1.0, 1.0, 1.0])
-        assert not th.allclose(noisy, loc)
+        assert not torch.allclose(noisy, loc)
 
     def test_apply_noise_zero_std_no_effect(self, base_env):
         base_env.reset(seed=0)
-        loc = th.ones(1, 4) * 3.14
+        loc = torch.ones(1, 4) * 3.14
         noisy = base_env.apply_noise(loc, noise=[0.0, 0.0, 0.0, 0.0])
-        assert th.allclose(noisy, loc)
+        assert torch.allclose(noisy, loc)
 
 
 class TestEnvironmentProperties:
@@ -292,7 +292,7 @@ class TestRandomTargetReach:
         assert info["goal"].shape == (5, 2)
 
     def test_goal_within_arm_reach(self, reach_env):
-        """Target should be reachable — within max arm length."""
+        """Target should be reachable — within max arm lengtorch."""
         arm = reach_env.skeleton
         max_reach = arm.L1 + arm.L2
         obs, info = reach_env.reset(
@@ -306,30 +306,30 @@ class TestRandomTargetReach:
         _, info_a = reach_env.reset(seed=0, options={"deterministic": True})
         _, info_b = reach_env.reset(seed=99, options={"deterministic": True})
         # Different seeds should (almost certainly) produce different targets
-        assert not th.allclose(info_a["goal"], info_b["goal"])
+        assert not torch.allclose(info_a["goal"], info_b["goal"])
 
     def test_obs_includes_goal_features(self, reach_env):
         # The goal is the first `space_dim` features of the observation
         obs, info = reach_env.reset(options={"deterministic": True})
         goal = info["goal"]
         obs_goal = obs[:, :reach_env.skeleton.space_dim]
-        assert th.allclose(obs_goal, goal, atol=1e-5)
+        assert torch.allclose(obs_goal, goal, atol=1e-5)
 
     def test_step_goal_unchanged(self, reach_env):
         """Goal should remain constant during an episode."""
         _, info = reach_env.reset(seed=0, options={"deterministic": True})
         goal_before = info["goal"].clone()
-        action = th.zeros(1, reach_env.effector.n_muscles)
+        action = torch.zeros(1, reach_env.effector.n_muscles)
         for _ in range(10):
             _, _, _, _, info = reach_env.step(action, deterministic=True)
-        assert th.allclose(info["goal"], goal_before)
+        assert torch.allclose(info["goal"], goal_before)
 
     def test_no_nan_over_episode(self, reach_env):
         reach_env.reset(seed=0, options={"deterministic": True})
-        action = th.ones(1, reach_env.effector.n_muscles) * 0.05
+        action = torch.ones(1, reach_env.effector.n_muscles) * 0.05
         n_steps = int(reach_env.max_ep_duration / reach_env.dt)
         for _ in range(n_steps):
             obs, _, terminated, _, _ = reach_env.step(action, deterministic=True)
-            assert not th.isnan(obs).any(), "NaN in observation during episode"
+            assert not torch.isnan(obs).any(), "NaN in observation during episode"
             if terminated:
                 break

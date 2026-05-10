@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-import torch as th
+import torch
 
 from motornet.muscle import (
     CompliantTendonHillMuscle,
@@ -27,8 +27,8 @@ class TestActivationODE:
         self.muscle.build(timestep=0.01, max_isometric_force=[1.0])
 
     def _ode(self, excitation, activation):
-        exc = th.tensor([[[excitation]]], dtype=th.float32)
-        act = th.tensor([[[activation]]], dtype=th.float32)
+        exc = torch.tensor([[[excitation]]], dtype=torch.float32)
+        act = torch.tensor([[[activation]]], dtype=torch.float32)
         return self.muscle.activation_ode(exc, act).item()
 
     def test_derivative_positive_when_excited_above_activation(self):
@@ -74,8 +74,8 @@ class TestActivationODE:
 
     def test_batch_consistent(self):
         # Both batch elements with the same inputs should produce the same derivative
-        exc = th.tensor([[[0.7]], [[0.7]]], dtype=th.float32)
-        act = th.tensor([[[0.4]], [[0.4]]], dtype=th.float32)
+        exc = torch.tensor([[[0.7]], [[0.7]]], dtype=torch.float32)
+        act = torch.tensor([[[0.4]], [[0.4]]], dtype=torch.float32)
         d = self.muscle.activation_ode(exc, act)
         assert d[0].item() == pytest.approx(d[1].item(), rel=1e-5)
 
@@ -83,8 +83,8 @@ class TestActivationODE:
         # Different excitations for different muscles produce independent derivatives
         m = ReluMuscle()
         m.build(timestep=0.01, max_isometric_force=[1.0, 1.0])
-        exc = th.tensor([[[0.9, 0.1]]], dtype=th.float32)
-        act = th.tensor([[[0.3, 0.7]]], dtype=th.float32)
+        exc = torch.tensor([[[0.9, 0.1]]], dtype=torch.float32)
+        act = torch.tensor([[[0.3, 0.7]]], dtype=torch.float32)
         d = m.activation_ode(exc, act)
         assert d[0, 0, 0].item() > 0   # 0.9 > 0.3 → rising
         assert d[0, 0, 1].item() < 0   # 0.1 < 0.7 → falling
@@ -102,27 +102,27 @@ class TestClipActivation:
         self.muscle.build(timestep=0.01, max_isometric_force=[1.0])
 
     def test_clips_below_min(self):
-        x = th.tensor([[[0.0]]])
+        x = torch.tensor([[[0.0]]])
         out = self.muscle.clip_activation(x)
         assert out.item() == pytest.approx(0.05)
 
     def test_clips_above_one(self):
-        x = th.tensor([[[1.5]]])
+        x = torch.tensor([[[1.5]]])
         out = self.muscle.clip_activation(x)
         assert out.item() == pytest.approx(1.0)
 
     def test_passes_through_valid(self):
-        x = th.tensor([[[0.5]]])
+        x = torch.tensor([[[0.5]]])
         out = self.muscle.clip_activation(x)
         assert out.item() == pytest.approx(0.5)
 
     def test_clips_at_exactly_min(self):
-        x = th.tensor([[[0.05]]])
+        x = torch.tensor([[[0.05]]])
         out = self.muscle.clip_activation(x)
         assert out.item() == pytest.approx(0.05)
 
     def test_clips_at_exactly_one(self):
-        x = th.tensor([[[1.0]]])
+        x = torch.tensor([[[1.0]]])
         out = self.muscle.clip_activation(x)
         assert out.item() == pytest.approx(1.0)
 
@@ -179,9 +179,9 @@ class TestReluMuscle:
         # muscle force = activation * max_iso_force
         activation = 0.6
         g = make_geometry_state(1, 0.0, 2)
-        muscle_state = th.zeros(1, 4, 2)
+        muscle_state = torch.zeros(1, 4, 2)
         muscle_state[:, 0, :] = activation
-        deriv = built_relu_muscle.ode(th.tensor([[[activation, activation]]]), muscle_state)
+        deriv = built_relu_muscle.ode(torch.tensor([[[activation, activation]]]), muscle_state)
         new_state = built_relu_muscle.integrate(
             dt=0.01, state_derivative=deriv, muscle_state=muscle_state, geometry_state=g
         )
@@ -196,16 +196,16 @@ class TestReluMuscle:
 
     def test_force_zero_when_activation_is_zero(self, built_relu_muscle):
         g = make_geometry_state(1, 0.0, 2)
-        muscle_state = th.zeros(1, 4, 2)
-        deriv = built_relu_muscle.ode(th.zeros(1, 1, 2), muscle_state)
+        muscle_state = torch.zeros(1, 4, 2)
+        deriv = built_relu_muscle.ode(torch.zeros(1, 1, 2), muscle_state)
         new_state = built_relu_muscle.integrate(0.01, deriv, muscle_state, g)
         # With zero activation, force should be at the minimum (min_act * max_iso)
         assert (new_state[:, 3, :] >= 0).all()
 
     def test_force_max_at_full_activation(self, built_relu_muscle):
         g = make_geometry_state(1, 0.0, 2)
-        muscle_state = th.ones(1, 4, 2)  # activation=1 in slot 0
-        deriv = built_relu_muscle.ode(th.ones(1, 1, 2), muscle_state)
+        muscle_state = torch.ones(1, 4, 2)  # activation=1 in slot 0
+        deriv = built_relu_muscle.ode(torch.ones(1, 1, 2), muscle_state)
         new_state = built_relu_muscle.integrate(0.01, deriv, muscle_state, g)
         # force = 1.0 * max_iso_force
         expected_m0 = built_relu_muscle.max_iso_force[0, 0, 0].item()
@@ -213,15 +213,15 @@ class TestReluMuscle:
 
     def test_integrate_output_shape(self, built_relu_muscle):
         g = make_geometry_state(3, 0.0, 2)
-        s = th.zeros(3, 4, 2)
-        d = built_relu_muscle.ode(th.zeros(3, 1, 2), s)
+        s = torch.zeros(3, 4, 2)
+        d = built_relu_muscle.ode(torch.zeros(3, 1, 2), s)
         out = built_relu_muscle.integrate(0.01, d, s, g)
         assert out.shape == (3, 4, 2)
 
     def test_activation_stays_in_bounds_over_many_steps(self, built_relu_muscle):
         g = make_geometry_state(1, 0.0, 2)
         s = built_relu_muscle.get_initial_muscle_state(1, g)
-        action = th.ones(1, 1, 2)
+        action = torch.ones(1, 1, 2)
         for _ in range(200):
             d = built_relu_muscle.ode(action, s)
             s = built_relu_muscle.integrate(0.01, d, s, g)
@@ -232,18 +232,18 @@ class TestReluMuscle:
     def test_no_nan_over_many_steps(self, built_relu_muscle):
         g = make_geometry_state(1, 0.0, 2)
         s = built_relu_muscle.get_initial_muscle_state(1, g)
-        action = th.ones(1, 1, 2) * 0.7
+        action = torch.ones(1, 1, 2) * 0.7
         for _ in range(200):
             d = built_relu_muscle.ode(action, s)
             s = built_relu_muscle.integrate(0.01, d, s, g)
-        assert not th.isnan(s).any()
-        assert not th.isinf(s).any()
+        assert not torch.isnan(s).any()
+        assert not torch.isinf(s).any()
 
     def test_different_muscles_independent(self, built_relu_muscle):
         # Muscle 0 excited, muscle 1 at rest — their activations evolve independently
         g = make_geometry_state(1, 0.0, 2)
-        s = th.zeros(1, 4, 2)
-        action = th.tensor([[[1.0, 0.0]]])
+        s = torch.zeros(1, 4, 2)
+        action = torch.tensor([[[1.0, 0.0]]])
         for _ in range(50):
             d = built_relu_muscle.ode(action, s)
             s = built_relu_muscle.integrate(0.01, d, s, g)
@@ -294,8 +294,8 @@ class TestRigidTendonHillMuscle:
         # At muscle_len = l0_ce = 0.1, muscle_len_n = 1.0, flce should be 1.0.
         l0_ce = built_rigid_tendon_muscle.l0_ce.item()
         g = make_geometry_state(1, l0_ce, 1)
-        s = th.zeros(1, 7, 1)
-        d = built_rigid_tendon_muscle.ode(th.ones(1, 1, 1), s)
+        s = torch.zeros(1, 7, 1)
+        d = built_rigid_tendon_muscle.ode(torch.ones(1, 1, 1), s)
         out = built_rigid_tendon_muscle.integrate(0.01, d, s, g)
         flce = out[0, 4, 0].item()
         assert flce == pytest.approx(1.0, abs=1e-5)
@@ -304,8 +304,8 @@ class TestRigidTendonHillMuscle:
         # muscle_len = l0_ce (optimal, below slack l0_pe = 0.14) → flpe = 0
         l0_ce = built_rigid_tendon_muscle.l0_ce.item()
         g = make_geometry_state(1, l0_ce, 1)
-        s = th.zeros(1, 7, 1)
-        d = built_rigid_tendon_muscle.ode(th.ones(1, 1, 1), s)
+        s = torch.zeros(1, 7, 1)
+        d = built_rigid_tendon_muscle.ode(torch.ones(1, 1, 1), s)
         out = built_rigid_tendon_muscle.integrate(0.01, d, s, g)
         flpe = out[0, 3, 0].item()
         assert flpe == pytest.approx(0.0, abs=1e-6)
@@ -313,8 +313,8 @@ class TestRigidTendonHillMuscle:
     def test_flpe_positive_above_slack_length(self, built_rigid_tendon_muscle):
         # muscle_len = 0.16 > l0_pe = 0.14 → flpe > 0
         g = make_geometry_state(1, 0.16, 1)
-        s = th.zeros(1, 7, 1)
-        d = built_rigid_tendon_muscle.ode(th.ones(1, 1, 1), s)
+        s = torch.zeros(1, 7, 1)
+        d = built_rigid_tendon_muscle.ode(torch.ones(1, 1, 1), s)
         out = built_rigid_tendon_muscle.integrate(0.01, d, s, g)
         assert out[0, 3, 0].item() > 0.0
 
@@ -322,8 +322,8 @@ class TestRigidTendonHillMuscle:
         lengths = [0.0, 0.05, 0.1, 0.14, 0.2]
         for length in lengths:
             g = make_geometry_state(1, length, 1)
-            s = th.zeros(1, 7, 1)
-            d = built_rigid_tendon_muscle.ode(th.ones(1, 1, 1), s)
+            s = torch.zeros(1, 7, 1)
+            d = built_rigid_tendon_muscle.ode(torch.ones(1, 1, 1), s)
             out = built_rigid_tendon_muscle.integrate(0.01, d, s, g)
             assert out[0, 6, 0].item() >= 0.0, f"negative force at length={length}"
 
@@ -333,9 +333,9 @@ class TestRigidTendonHillMuscle:
         g_iso = make_geometry_state(1, l0_ce, 1, vel=0.0)
         g_sho = make_geometry_state(1, l0_ce, 1, vel=-0.5)
         g_len = make_geometry_state(1, l0_ce, 1, vel=0.5)
-        s = th.zeros(1, 7, 1)
+        s = torch.zeros(1, 7, 1)
         s[:, 0, :] = 1.0  # full activation
-        d = built_rigid_tendon_muscle.ode(th.ones(1, 1, 1), s)
+        d = built_rigid_tendon_muscle.ode(torch.ones(1, 1, 1), s)
         out_iso = built_rigid_tendon_muscle.integrate(0.01, d, s, g_iso)
         out_sho = built_rigid_tendon_muscle.integrate(0.01, d, s, g_sho)
         out_len = built_rigid_tendon_muscle.integrate(0.01, d, s, g_len)
@@ -349,7 +349,7 @@ class TestRigidTendonHillMuscle:
         l0_ce = built_rigid_tendon_muscle.l0_ce.item()
         g = make_geometry_state(1, l0_ce, 1)
         s = built_rigid_tendon_muscle.get_initial_muscle_state(1, g)
-        action = th.ones(1, 1, 1) * 0.8
+        action = torch.ones(1, 1, 1) * 0.8
         for _ in range(200):
             d = built_rigid_tendon_muscle.ode(action, s)
             s = built_rigid_tendon_muscle.integrate(0.01, d, s, g)
@@ -360,12 +360,12 @@ class TestRigidTendonHillMuscle:
         l0_ce = built_rigid_tendon_muscle.l0_ce.item()
         g = make_geometry_state(1, l0_ce, 1)
         s = built_rigid_tendon_muscle.get_initial_muscle_state(1, g)
-        action = th.ones(1, 1, 1) * 0.5
+        action = torch.ones(1, 1, 1) * 0.5
         for _ in range(200):
             d = built_rigid_tendon_muscle.ode(action, s)
             s = built_rigid_tendon_muscle.integrate(0.01, d, s, g)
-        assert not th.isnan(s).any()
-        assert not th.isinf(s).any()
+        assert not torch.isnan(s).any()
+        assert not torch.isinf(s).any()
 
     def test_multi_muscle_build(self):
         m = RigidTendonHillMuscle()
@@ -389,8 +389,8 @@ class TestRigidTendonHillMuscle:
             normalized_slack_muscle_length=[1.4, 1.4],
         )
         g = make_geometry_state(1, 0.1, 2)
-        s = th.zeros(1, 7, 2)
-        d = m.ode(th.ones(1, 1, 2), s)
+        s = torch.zeros(1, 7, 2)
+        d = m.ode(torch.ones(1, 1, 2), s)
         out = m.integrate(0.01, d, s, g)
         # Muscle 1 has 2× the max force → its force output at full activation should be ~2×
         assert out[0, 6, 1].item() > out[0, 6, 0].item()
@@ -419,32 +419,32 @@ class TestRigidTendonHillMuscleThelen:
         # flce = exp(0) = 1.0 when muscle_len / l0_ce == 1
         l0_ce = built_thelen_muscle.l0_ce.item()
         g = make_geometry_state(1, l0_ce, 1)
-        s = th.zeros(1, 7, 1)
-        d = built_thelen_muscle.ode(th.ones(1, 1, 1), s)
+        s = torch.zeros(1, 7, 1)
+        d = built_thelen_muscle.ode(torch.ones(1, 1, 1), s)
         out = built_thelen_muscle.integrate(0.01, d, s, g)
         assert out[0, 4, 0].item() == pytest.approx(1.0, abs=1e-5)
 
     def test_flce_less_than_one_away_from_optimal(self, built_thelen_muscle):
         for length in [0.05, 0.07, 0.13, 0.16]:
             g = make_geometry_state(1, length, 1)
-            s = th.zeros(1, 7, 1)
-            d = built_thelen_muscle.ode(th.ones(1, 1, 1), s)
+            s = torch.zeros(1, 7, 1)
+            d = built_thelen_muscle.ode(torch.ones(1, 1, 1), s)
             out = built_thelen_muscle.integrate(0.01, d, s, g)
             assert out[0, 4, 0].item() <= 1.0 + 1e-5
 
     def test_flpe_zero_below_slack(self, built_thelen_muscle):
         l0_ce = built_thelen_muscle.l0_ce.item()
         g = make_geometry_state(1, l0_ce, 1)  # l0_ce < l0_pe = 1.4 * l0_ce
-        s = th.zeros(1, 7, 1)
-        d = built_thelen_muscle.ode(th.ones(1, 1, 1), s)
+        s = torch.zeros(1, 7, 1)
+        d = built_thelen_muscle.ode(torch.ones(1, 1, 1), s)
         out = built_thelen_muscle.integrate(0.01, d, s, g)
         assert out[0, 3, 0].item() == pytest.approx(0.0, abs=1e-5)
 
     def test_flpe_positive_above_slack(self, built_thelen_muscle):
         # l0_pe = 1.4 * 0.1 = 0.14; stretch to 0.16
         g = make_geometry_state(1, 0.16, 1)
-        s = th.zeros(1, 7, 1)
-        d = built_thelen_muscle.ode(th.ones(1, 1, 1), s)
+        s = torch.zeros(1, 7, 1)
+        d = built_thelen_muscle.ode(torch.ones(1, 1, 1), s)
         out = built_thelen_muscle.integrate(0.01, d, s, g)
         assert out[0, 3, 0].item() > 0.0
 
@@ -452,8 +452,8 @@ class TestRigidTendonHillMuscleThelen:
         l0_ce = built_thelen_muscle.l0_ce.item()
         for length in [0.0, 0.05, l0_ce, 0.14, 0.20]:
             g = make_geometry_state(1, length, 1)
-            s = th.zeros(1, 7, 1)
-            d = built_thelen_muscle.ode(th.ones(1, 1, 1), s)
+            s = torch.zeros(1, 7, 1)
+            d = built_thelen_muscle.ode(torch.ones(1, 1, 1), s)
             out = built_thelen_muscle.integrate(0.01, d, s, g)
             assert out[0, 6, 0].item() >= 0.0, f"negative force at length={length}"
 
@@ -461,12 +461,12 @@ class TestRigidTendonHillMuscleThelen:
         l0_ce = built_thelen_muscle.l0_ce.item()
         g = make_geometry_state(1, l0_ce, 1)
         s = built_thelen_muscle.get_initial_muscle_state(1, g)
-        action = th.ones(1, 1, 1) * 0.6
+        action = torch.ones(1, 1, 1) * 0.6
         for _ in range(200):
             d = built_thelen_muscle.ode(action, s)
             s = built_thelen_muscle.integrate(0.01, d, s, g)
-        assert not th.isnan(s).any()
-        assert not th.isinf(s).any()
+        assert not torch.isnan(s).any()
+        assert not torch.isinf(s).any()
 
     def test_multi_muscle_independent(self):
         m = RigidTendonHillMuscleThelen()
@@ -478,9 +478,9 @@ class TestRigidTendonHillMuscleThelen:
             normalized_slack_muscle_length=[1.4, 1.4],
         )
         g = make_geometry_state(1, 0.1, 2)
-        s = th.zeros(1, 7, 2)
+        s = torch.zeros(1, 7, 2)
         # Activate only muscle 0
-        d = m.ode(th.tensor([[[1.0, 0.0]]]), s)
+        d = m.ode(torch.tensor([[[1.0, 0.0]]]), s)
         out = m.integrate(0.01, d, s, g)
         # Muscle 0 should have higher activation than muscle 1
         assert out[0, 0, 0].item() > out[0, 0, 1].item()
@@ -508,23 +508,23 @@ class TestMujocoHillMuscle:
     def test_bump_zero_at_lower_boundary(self, built_mujoco_muscle):
         lmin = built_mujoco_muscle.lmin
         L = lmin.clone()
-        result = built_mujoco_muscle._bump(L, mid=th.tensor(1.0), lmax=built_mujoco_muscle.lmax)
+        result = built_mujoco_muscle._bump(L, mid=torch.tensor(1.0), lmax=built_mujoco_muscle.lmax)
         assert result.item() == pytest.approx(0.0, abs=1e-6)
 
     def test_bump_zero_at_upper_boundary(self, built_mujoco_muscle):
         lmax = built_mujoco_muscle.lmax
         L = lmax.clone()
-        result = built_mujoco_muscle._bump(L, mid=th.tensor(1.0), lmax=built_mujoco_muscle.lmax)
+        result = built_mujoco_muscle._bump(L, mid=torch.tensor(1.0), lmax=built_mujoco_muscle.lmax)
         assert result.item() == pytest.approx(0.0, abs=1e-6)
 
     def test_bump_peak_at_mid(self, built_mujoco_muscle):
-        L = th.tensor([[[1.0]]])
-        result = built_mujoco_muscle._bump(L, mid=th.tensor(1.0), lmax=built_mujoco_muscle.lmax)
+        L = torch.tensor([[[1.0]]])
+        result = built_mujoco_muscle._bump(L, mid=torch.tensor(1.0), lmax=built_mujoco_muscle.lmax)
         assert result.item() == pytest.approx(1.0, abs=1e-5)
 
     def test_bump_non_negative(self, built_mujoco_muscle):
-        lengths = th.linspace(0.3, 1.8, 100).reshape(100, 1, 1)
-        result = built_mujoco_muscle._bump(lengths, mid=th.tensor(1.0), lmax=built_mujoco_muscle.lmax)
+        lengths = torch.linspace(0.3, 1.8, 100).reshape(100, 1, 1)
+        result = built_mujoco_muscle._bump(lengths, mid=torch.tensor(1.0), lmax=built_mujoco_muscle.lmax)
         assert (result >= 0).all()
 
     def test_flce_peak_at_normalized_optimal_length(self, built_mujoco_muscle):
@@ -533,8 +533,8 @@ class TestMujocoHillMuscle:
         l0_ce = built_mujoco_muscle.l0_ce.item()
         l0_se = built_mujoco_muscle.l0_se.item()
         g = make_geometry_state(1, l0_ce + l0_se, 1)
-        s = th.zeros(1, 7, 1)
-        d = built_mujoco_muscle.ode(th.ones(1, 1, 1), s)
+        s = torch.zeros(1, 7, 1)
+        d = built_mujoco_muscle.ode(torch.ones(1, 1, 1), s)
         out = built_mujoco_muscle.integrate(0.01, d, s, g)
         flce = out[0, 4, 0].item()
         assert flce == pytest.approx(1.0, abs=1e-4)
@@ -545,8 +545,8 @@ class TestMujocoHillMuscle:
         l0_se = built_mujoco_muscle.l0_se.item()
         lmax = built_mujoco_muscle.lmax.item()
         g = make_geometry_state(1, lmax * l0_ce + l0_se, 1)
-        s = th.zeros(1, 7, 1)
-        d = built_mujoco_muscle.ode(th.ones(1, 1, 1), s)
+        s = torch.zeros(1, 7, 1)
+        d = built_mujoco_muscle.ode(torch.ones(1, 1, 1), s)
         out = built_mujoco_muscle.integrate(0.01, d, s, g)
         assert out[0, 4, 0].item() == pytest.approx(0.0, abs=1e-4)
 
@@ -555,8 +555,8 @@ class TestMujocoHillMuscle:
         l0_se = built_mujoco_muscle.l0_se.item()
         # muscle_len_n = 1.0 ≤ 1.0 → flpe should be 0 (x=0 in the formula)
         g = make_geometry_state(1, l0_ce + l0_se, 1)
-        s = th.zeros(1, 7, 1)
-        d = built_mujoco_muscle.ode(th.zeros(1, 1, 1), s)
+        s = torch.zeros(1, 7, 1)
+        d = built_mujoco_muscle.ode(torch.zeros(1, 1, 1), s)
         out = built_mujoco_muscle.integrate(0.01, d, s, g)
         assert out[0, 3, 0].item() == pytest.approx(0.0, abs=1e-5)
 
@@ -565,8 +565,8 @@ class TestMujocoHillMuscle:
         l0_se = built_mujoco_muscle.l0_se.item()
         for length in [0.001 + l0_se, 0.05 + l0_se, l0_ce + l0_se, 0.15 + l0_se]:
             g = make_geometry_state(1, length, 1)
-            s = th.zeros(1, 7, 1)
-            d = built_mujoco_muscle.ode(th.ones(1, 1, 1), s)
+            s = torch.zeros(1, 7, 1)
+            d = built_mujoco_muscle.ode(torch.ones(1, 1, 1), s)
             out = built_mujoco_muscle.integrate(0.01, d, s, g)
             assert out[0, 6, 0].item() >= 0.0, f"negative force at length={length}"
 
@@ -575,12 +575,12 @@ class TestMujocoHillMuscle:
         l0_se = built_mujoco_muscle.l0_se.item()
         g = make_geometry_state(1, l0_ce + l0_se, 1)
         s = built_mujoco_muscle.get_initial_muscle_state(1, g)
-        action = th.ones(1, 1, 1) * 0.5
+        action = torch.ones(1, 1, 1) * 0.5
         for _ in range(200):
             d = built_mujoco_muscle.ode(action, s)
             s = built_mujoco_muscle.integrate(0.01, d, s, g)
-        assert not th.isnan(s).any()
-        assert not th.isinf(s).any()
+        assert not torch.isnan(s).any()
+        assert not torch.isinf(s).any()
 
 
 # =============================================================================
@@ -607,7 +607,7 @@ class TestCompliantTendonHillMuscle:
         s = built_compliant_muscle.get_initial_muscle_state(
             1, make_geometry_state(1, 0.6, 1)
         )
-        d = built_compliant_muscle.ode(th.zeros(1, 1, 1), s)
+        d = built_compliant_muscle.ode(torch.zeros(1, 1, 1), s)
         assert d.shape[1] == 2
 
     def test_initial_state_shape(self, built_compliant_muscle):
@@ -619,7 +619,7 @@ class TestCompliantTendonHillMuscle:
         g = make_geometry_state(1, 0.6, 1)
         s = built_compliant_muscle.get_initial_muscle_state(1, g)
         for _ in range(20):
-            d = built_compliant_muscle.ode(th.ones(1, 1, 1) * 0.5, s)
+            d = built_compliant_muscle.ode(torch.ones(1, 1, 1) * 0.5, s)
             s = built_compliant_muscle.integrate(0.0001, d, s, g)
         assert s[0, 6, 0].item() >= 0.0
 
@@ -627,7 +627,7 @@ class TestCompliantTendonHillMuscle:
         # slot 4 = flse (tendon force), slot 6 = total force = flse * max_iso_force
         g = make_geometry_state(1, 0.6, 1)
         s = built_compliant_muscle.get_initial_muscle_state(1, g)
-        d = built_compliant_muscle.ode(th.ones(1, 1, 1) * 0.5, s)
+        d = built_compliant_muscle.ode(torch.ones(1, 1, 1) * 0.5, s)
         out = built_compliant_muscle.integrate(0.0001, d, s, g)
         flse = out[0, 4, 0].item()
         force = out[0, 6, 0].item()
@@ -637,17 +637,17 @@ class TestCompliantTendonHillMuscle:
     def test_no_nan_over_many_steps(self, built_compliant_muscle):
         g = make_geometry_state(1, 0.6, 1)
         s = built_compliant_muscle.get_initial_muscle_state(1, g)
-        action = th.ones(1, 1, 1) * 0.4
+        action = torch.ones(1, 1, 1) * 0.4
         for _ in range(500):
             d = built_compliant_muscle.ode(action, s)
             s = built_compliant_muscle.integrate(0.0001, d, s, g)
-        assert not th.isnan(s).any()
-        assert not th.isinf(s).any()
+        assert not torch.isnan(s).any()
+        assert not torch.isinf(s).any()
 
     def test_activation_in_bounds_over_many_steps(self, built_compliant_muscle):
         g = make_geometry_state(1, 0.6, 1)
         s = built_compliant_muscle.get_initial_muscle_state(1, g)
-        action = th.ones(1, 1, 1) * 0.8
+        action = torch.ones(1, 1, 1) * 0.8
         for _ in range(500):
             d = built_compliant_muscle.ode(action, s)
             s = built_compliant_muscle.integrate(0.0001, d, s, g)

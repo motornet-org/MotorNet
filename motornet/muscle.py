@@ -1,8 +1,8 @@
-import torch as th
+import torch
 import numpy as np
 
 
-class Muscle(th.nn.Module):
+class Muscle(torch.nn.Module):
   """Base class for `Muscle` objects. If a effector contains several muscles, this object will contain all of
   those in a vectorized format, meaning for any given effector there will always be only `one` muscle object, 
   regardless of the number of muscles wrapped around the skeleton.
@@ -35,13 +35,13 @@ class Muscle(th.nn.Module):
     
     super().__init__()
 
-    self._device = th.device('cpu')
+    self._device = torch.device('cpu')
     self.input_dim = input_dim
     self.state_name = []
     self.output_dim = output_dim
-    self.register_buffer('min_activation', th.tensor(min_activation, dtype=th.float32))
-    self.register_buffer('tau_activation', th.tensor(tau_activation, dtype=th.float32))
-    self.register_buffer('tau_deactivation', th.tensor(tau_deactivation, dtype=th.float32))
+    self.register_buffer('min_activation', torch.tensor(min_activation, dtype=torch.float32))
+    self.register_buffer('tau_activation', torch.tensor(tau_activation, dtype=torch.float32))
+    self.register_buffer('tau_deactivation', torch.tensor(tau_deactivation, dtype=torch.float32))
     self.to_build_dict = {'max_isometric_force': []}
     self.to_build_dict_default = {}
     self.dt = None
@@ -54,15 +54,15 @@ class Muscle(th.nn.Module):
     self.built = False
 
   def clip_activation(self, a):
-    return th.clamp(a, self.min_activation, 1.)
+    return torch.clamp(a, self.min_activation, 1.)
   
   def to(self, *args, **kwargs):
-    if args and isinstance(args[0], (str, th.device)):
-      self._device = th.device(args[0])
-    elif args and isinstance(args[0], th.Tensor):
+    if args and isinstance(args[0], (str, torch.device)):
+      self._device = torch.device(args[0])
+    elif args and isinstance(args[0], torch.Tensor):
       self._device = args[0].device
     elif 'device' in kwargs:
-      self._device = th.device(kwargs['device'])
+      self._device = torch.device(kwargs['device'])
     return super().to(*args, **kwargs)
 
   @property
@@ -84,12 +84,12 @@ class Muscle(th.nn.Module):
     """
     max_isometric_force = np.array(max_isometric_force).reshape(1, 1, -1)
     self.n_muscles = np.array(max_isometric_force).size
-    self.register_buffer('max_iso_force', th.tensor(max_isometric_force, dtype=th.float32))
+    self.register_buffer('max_iso_force', torch.tensor(max_isometric_force, dtype=torch.float32))
     self.dt = timestep
-    self.register_buffer('vmax', th.ones((1, 1, self.n_muscles)))
-    self.register_buffer('l0_se', th.ones((1, 1, self.n_muscles)))
-    self.register_buffer('l0_ce', th.ones((1, 1, self.n_muscles)))
-    self.register_buffer('l0_pe', th.ones((1, 1, self.n_muscles)))
+    self.register_buffer('vmax', torch.ones((1, 1, self.n_muscles)))
+    self.register_buffer('l0_se', torch.ones((1, 1, self.n_muscles)))
+    self.register_buffer('l0_ce', torch.ones((1, 1, self.n_muscles)))
+    self.register_buffer('l0_pe', torch.ones((1, 1, self.n_muscles)))
     self.built = True
 
   def get_initial_muscle_state(self, batch_size, geometry_state):
@@ -164,10 +164,10 @@ class Muscle(th.nn.Module):
     Returns:
       A `tensor` containing the updated activation values.
     """
-    action = self.clip_activation(th.reshape(action, (-1, 1, self.n_muscles)))
+    action = self.clip_activation(torch.reshape(action, (-1, 1, self.n_muscles)))
     activation = self.clip_activation(activation)
     tmp = 0.5 + 1.5 * activation
-    tau = th.where(action > activation, self.tau_activation * tmp, self.tau_deactivation / tmp)
+    tau = torch.where(action > activation, self.tau_activation * tmp, self.tau_deactivation / tmp)
     return (action - activation) / tau
 
   def setattr(self, name: str, value):
@@ -222,13 +222,13 @@ class ReluMuscle(Muscle):
     activation = self.clip_activation(activation)
     forces = activation * self.max_iso_force
     len_vel = geometry_state[:, :2, :]
-    return th.cat([activation, len_vel, forces], dim=1)
+    return torch.cat([activation, len_vel, forces], dim=1)
 
   def _get_initial_muscle_state(self, batch_size, geometry_state):
-    activation0 = th.ones((batch_size, 1, self.n_muscles), device=self.device) * self.min_activation
-    force0 = th.zeros((batch_size, 1, self.n_muscles), device=self.device)
+    activation0 = torch.ones((batch_size, 1, self.n_muscles), device=self.device) * self.min_activation
+    force0 = torch.zeros((batch_size, 1, self.n_muscles), device=self.device)
     len_vel = geometry_state[:, 0:2, :]
-    return th.cat([activation0, len_vel, force0], dim=1)
+    return torch.cat([activation0, len_vel, force0], dim=1)
 
 
 
@@ -337,7 +337,7 @@ class MujocoHillMuscle(Muscle):
     self.n_muscles = np.array(tendon_length).size
     
     def to_tensor(x):
-      tensor = th.tensor(x, dtype=th.float32).reshape((1, 1, -1))
+      tensor = torch.tensor(x, dtype=torch.float32).reshape((1, 1, -1))
       assert tensor.numel() == 1 or tensor.numel() == self.n_muscles
       return tensor
 
@@ -359,15 +359,15 @@ class MujocoHillMuscle(Muscle):
     self.register_buffer('c', self.fvmax - 1)
     self.register_buffer('p1', self.b - 1)
     self.register_buffer('p2', 0.25 * self.l0_pe)
-    self.register_buffer('zero_as_tensor', th.tensor(0., dtype=th.float32))
+    self.register_buffer('zero_as_tensor', torch.tensor(0., dtype=torch.float32))
     self.register_buffer('mid', 0.5 * (self.lmin + 0.95))
 
     self.built = True
 
   def _get_initial_muscle_state(self, batch_size, geometry_state):
     shape = geometry_state[:, :1, :].shape
-    muscle_state = th.ones(shape, dtype=th.float32, device=self.device) * self.min_activation
-    state_derivatives = th.zeros(shape, dtype=th.float32, device=self.device)
+    muscle_state = torch.ones(shape, dtype=torch.float32, device=self.device) * self.min_activation
+    state_derivatives = torch.zeros(shape, dtype=torch.float32, device=self.device)
     return self.integrate(self.dt, state_derivatives, muscle_state, geometry_state)
 
   def _integrate(self, dt, state_derivative, muscle_state, geometry_state):
@@ -376,23 +376,23 @@ class MujocoHillMuscle(Muscle):
 
     # musculotendon geometry
     musculotendon_len = geometry_state[:, :1, :]
-    muscle_len = th.clip(musculotendon_len - self.l0_se, min=0.001) / self.l0_ce
+    muscle_len = torch.clip(musculotendon_len - self.l0_se, min=0.001) / self.l0_ce
     muscle_vel = geometry_state[:, 1:2, :] / self.vmax
 
     # muscle forces
-    x = th.where(
+    x = torch.where(
       muscle_len <= 1,
       input=self.zero_as_tensor,
-      other=th.where(
-        th.less_equal(muscle_len, self.b),
+      other=torch.where(
+        torch.less_equal(muscle_len, self.b),
         input=(muscle_len - 1) / self.p1,
         other=(muscle_len - self.b) / self.p1,
         )
       )
-    flpe = th.where(
-      th.less_equal(muscle_len, 1),
+    flpe = torch.where(
+      torch.less_equal(muscle_len, 1),
       input=self.zero_as_tensor,
-      other=th.where(
+      other=torch.where(
         muscle_len <= self.b,
         input=self.p2 * x**3,
         other=self.p2 * (1 + 3*x),
@@ -403,21 +403,21 @@ class MujocoHillMuscle(Muscle):
     flce = self._bump(muscle_len, mid=1, lmax=self.lmax) + 0.15 * self._bump(muscle_len, mid=self.mid, lmax=0.95)
 
     # velocity-active
-    fvce = th.where(
-      th.less_equal(muscle_vel, -1),
+    fvce = torch.where(
+      torch.less_equal(muscle_vel, -1),
       input=self.zero_as_tensor,
-      other=th.where(
-        th.less_equal(muscle_vel, 0.),
+      other=torch.where(
+        torch.less_equal(muscle_vel, 0.),
         input=(muscle_vel+1) * (muscle_vel+1),
-        other=th.where(
-          th.less_equal(muscle_vel, self.c),
+        other=torch.where(
+          torch.less_equal(muscle_vel, self.c),
           input=self.fvmax - (self.c-muscle_vel)*(self.c-muscle_vel)/self.c,
           other=self.fvmax,
           )
         )
       )
     force = (activation * flce * fvce + self.passive_forces * flpe) * self.max_iso_force
-    return th.cat([activation, muscle_len * self.l0_ce, muscle_vel * self.vmax, flpe, flce, fvce, force], dim=1)
+    return torch.cat([activation, muscle_len * self.l0_ce, muscle_vel * self.vmax, flpe, flce, fvce, force], dim=1)
 
     
   def _bump(self, L, mid, lmax):
@@ -426,25 +426,25 @@ class MujocoHillMuscle(Muscle):
     left = 0.5*(self.lmin+mid)
     right = 0.5*(mid+lmax)
 
-    out_of_range = th.logical_or(th.less_equal(L, self.lmin), th.greater_equal(L, lmax))
-    less_than_left = th.less(L, left)
-    less_than_mid = th.less(L, mid)
-    less_than_right = th.less(L, right)
+    out_of_range = torch.logical_or(torch.less_equal(L, self.lmin), torch.greater_equal(L, lmax))
+    less_than_left = torch.less(L, left)
+    less_than_mid = torch.less(L, mid)
+    less_than_right = torch.less(L, right)
 
-    x = th.where(out_of_range, input=self.zero_as_tensor,
-      other=th.where(less_than_left, input=(L-self.lmin) / (left-self.lmin),
-        other=th.where(less_than_mid, input=(mid-L) / (mid-left),
-          other=th.where(less_than_right, input=(L-mid) / (right-mid),
+    x = torch.where(out_of_range, input=self.zero_as_tensor,
+      other=torch.where(less_than_left, input=(L-self.lmin) / (left-self.lmin),
+        other=torch.where(less_than_mid, input=(mid-L) / (mid-left),
+          other=torch.where(less_than_right, input=(L-mid) / (right-mid),
             other=(lmax-L) / (lmax-right),
             )
           )
         )
       )
     pfivexx = 0.5 * x * x
-    y = th.where(out_of_range, input=self.zero_as_tensor,
-      other=th.where(less_than_left, input=pfivexx,
-        other=th.where(less_than_mid, input=1 - pfivexx,
-          other=th.where(less_than_right, input=1 - pfivexx,
+    y = torch.where(out_of_range, input=self.zero_as_tensor,
+      other=torch.where(less_than_left, input=pfivexx,
+        other=torch.where(less_than_mid, input=1 - pfivexx,
+          other=torch.where(less_than_right, input=1 - pfivexx,
             other=pfivexx,
             )
           )
@@ -544,10 +544,10 @@ class RigidTendonHillMuscle(Muscle):
     shape = (1, 1, self.n_muscles)
 
     self.dt = timestep
-    self.register_buffer('max_iso_force', th.tensor(max_isometric_force, dtype=th.float32).reshape(shape))
-    self.register_buffer('l0_ce', th.tensor(optimal_muscle_length, dtype=th.float32).reshape(shape))
-    self.register_buffer('l0_se', th.tensor(tendon_length, dtype=th.float32).reshape(shape))
-    self.register_buffer('l0_pe', th.tensor(normalized_slack_muscle_length, dtype=th.float32)*self.l0_ce)
+    self.register_buffer('max_iso_force', torch.tensor(max_isometric_force, dtype=torch.float32).reshape(shape))
+    self.register_buffer('l0_ce', torch.tensor(optimal_muscle_length, dtype=torch.float32).reshape(shape))
+    self.register_buffer('l0_se', torch.tensor(tendon_length, dtype=torch.float32).reshape(shape))
+    self.register_buffer('l0_pe', torch.tensor(normalized_slack_muscle_length, dtype=torch.float32)*self.l0_ce)
     self.register_buffer('k_pe', 1 / ((1.66 - self.l0_pe / self.l0_ce) ** 2))
     self.register_buffer('musculotendon_slack_len', self.l0_pe + self.l0_se)
     self.register_buffer('vmax', 10 * self.l0_ce)
@@ -555,8 +555,8 @@ class RigidTendonHillMuscle(Muscle):
 
   def _get_initial_muscle_state(self, batch_size, geometry_state):
     shape = geometry_state[:, :1, :].shape
-    muscle_state = th.ones(shape, device=self.device) * self.min_activation
-    state_derivatives = th.zeros(shape, device=self.device)
+    muscle_state = torch.ones(shape, device=self.device) * self.min_activation
+    state_derivatives = torch.zeros(shape, device=self.device)
     return self.integrate(self.dt, state_derivatives, muscle_state, geometry_state)
 
   def _integrate(self, dt, state_derivative, muscle_state, geometry_state):
@@ -565,22 +565,22 @@ class RigidTendonHillMuscle(Muscle):
     # musculotendon geometry
     musculotendon_len = geometry_state[:, :1, :]
     muscle_vel = geometry_state[:, 1:2, :]
-    muscle_len = th.clip(musculotendon_len - self.l0_se, min=0.)
-    muscle_strain = th.clip((muscle_len - self.l0_pe) / self.l0_ce, min=0.)
+    muscle_len = torch.clip(musculotendon_len - self.l0_se, min=0.)
+    muscle_strain = torch.clip((muscle_len - self.l0_pe) / self.l0_ce, min=0.)
     muscle_len_n = muscle_len / self.l0_ce
     muscle_vel_n = muscle_vel / self.vmax
 
     # muscle forces
     # flpe = tf.minimum(self.k_pe * (muscle_strain ** 2), 3.)
     flpe = self.k_pe * (muscle_strain ** 2)
-    flce = th.clip(1 + (- muscle_len_n ** 2 + 2 * muscle_len_n - 1) / self.f_iso_n_den, min=self.min_flce)
+    flce = torch.clip(1 + (- muscle_len_n ** 2 + 2 * muscle_len_n - 1) / self.f_iso_n_den, min=self.min_flce)
 
-    a_rel_st = th.where(
+    a_rel_st = torch.where(
       condition=muscle_len_n > 1.,
       input=.41 * flce,
       other=.41
       )
-    b_rel_st = th.where(
+    b_rel_st = torch.where(
       condition=activation < self.q_crit,
       input=5.2 * (1 - .9 * ((activation - self.q_crit) / (5e-3 - self.q_crit))) ** 2,
       other=5.2
@@ -596,20 +596,20 @@ class RigidTendonHillMuscle(Muscle):
     p2 = (tmp_p_nom ** 2) / tmp_p_den
     p3 = - 1.5 * f_x_a
 
-    nom = th.where(
+    nom = torch.where(
       condition=muscle_vel_n < 0,
       input=muscle_vel_n * activation * a_rel_st + f_x_a * b_rel_st,
       other=-p1 * p3 + p1 * self.s_as * muscle_vel_n + p2 - p3 * muscle_vel_n + self.s_as * muscle_vel_n ** 2
       )
-    den = th.where(
+    den = torch.where(
       condition=muscle_vel_n < 0,
       input=b_rel_st - muscle_vel_n,
       other=p1 + muscle_vel_n
       )
 
-    active_force = th.clip(nom / den, min=0.)
+    active_force = torch.clip(nom / den, min=0.)
     force = (active_force + flpe) * self.max_iso_force
-    return th.cat([activation, muscle_len, muscle_vel, flpe, flce, active_force, force], dim=1)
+    return torch.cat([activation, muscle_len, muscle_vel, flpe, flce, active_force, force], dim=1)
 
 
 class RigidTendonHillMuscleThelen(Muscle):
@@ -642,12 +642,12 @@ class RigidTendonHillMuscleThelen(Muscle):
     self.state_dim = len(self.state_name)
 
     # parameters for the passive element (PE) and contractile element (CE)
-    self.register_buffer('pe_k', th.tensor(5., dtype=th.float32))
+    self.register_buffer('pe_k', torch.tensor(5., dtype=torch.float32))
     self.register_buffer('pe_1', self.pe_k / 0.6)  # divided by epsilon_0^M in Thelen (2003) eq. 3
-    self.register_buffer('pe_den', th.exp(self.pe_k) - 1)
-    self.register_buffer('ce_gamma', th.tensor(0.45, dtype=th.float32))
-    self.register_buffer('ce_Af', th.tensor(0.25, dtype=th.float32))
-    self.register_buffer('ce_fmlen', th.tensor(1.4, dtype=th.float32))
+    self.register_buffer('pe_den', torch.exp(self.pe_k) - 1)
+    self.register_buffer('ce_gamma', torch.tensor(0.45, dtype=torch.float32))
+    self.register_buffer('ce_Af', torch.tensor(0.25, dtype=torch.float32))
+    self.register_buffer('ce_fmlen', torch.tensor(1.4, dtype=torch.float32))
 
     # pre-define attributes:
     self.register_buffer('musculotendon_slack_len', None)
@@ -699,10 +699,10 @@ class RigidTendonHillMuscleThelen(Muscle):
     self.n_muscles = np.array(tendon_length).size
     self.dt = timestep
 
-    max_isometric_force = th.tensor(max_isometric_force, dtype=th.float32).reshape(1, 1, self.n_muscles)
-    optimal_muscle_length = th.tensor(optimal_muscle_length, dtype=th.float32).reshape(1, 1, self.n_muscles)
-    tendon_length = th.tensor(tendon_length, dtype=th.float32).reshape(1, 1, self.n_muscles)
-    normalized_slack_muscle_length = th.tensor(normalized_slack_muscle_length, dtype=th.float32)
+    max_isometric_force = torch.tensor(max_isometric_force, dtype=torch.float32).reshape(1, 1, self.n_muscles)
+    optimal_muscle_length = torch.tensor(optimal_muscle_length, dtype=torch.float32).reshape(1, 1, self.n_muscles)
+    tendon_length = torch.tensor(tendon_length, dtype=torch.float32).reshape(1, 1, self.n_muscles)
+    normalized_slack_muscle_length = torch.tensor(normalized_slack_muscle_length, dtype=torch.float32)
 
     self.register_buffer('max_iso_force', max_isometric_force)
     self.register_buffer('l0_ce', optimal_muscle_length)
@@ -723,8 +723,8 @@ class RigidTendonHillMuscleThelen(Muscle):
 
   def _get_initial_muscle_state(self, batch_size, geometry_state):
     shape = geometry_state[:, :1, :].shape
-    muscle_state = th.ones(shape, device=self.device) * self.min_activation
-    state_derivatives = th.zeros(shape, device=self.device)
+    muscle_state = torch.ones(shape, device=self.device) * self.min_activation
+    state_derivatives = torch.zeros(shape, device=self.device)
     return self.integrate(self.dt, state_derivatives, muscle_state, geometry_state)
 
   def _integrate(self, dt, state_derivative, muscle_state, geometry_state):
@@ -733,27 +733,27 @@ class RigidTendonHillMuscleThelen(Muscle):
 
     # musculotendon geometry
     musculotendon_len = geometry_state[:, :1, :]
-    muscle_len = th.clip(musculotendon_len - self.l0_se, min=0.001)
+    muscle_len = torch.clip(musculotendon_len - self.l0_se, min=0.001)
     muscle_vel = geometry_state[:, 1:2, :]
 
     # muscle forces
     a3 = activation * 3.
     condition = muscle_vel <= 0
-    nom = th.where(
+    nom = torch.where(
       condition,
       input=self.ce_Af * (activation * self.ce_0 + 4. * muscle_vel + self.vmax),
       other=self.ce_2 * activation + self.ce_3 * muscle_vel + self.ce_4
       )
-    den = th.where(
+    den = torch.where(
       condition,
       input=a3 * self.ce_1 + self.ce_1 - 4. * muscle_vel,
       other=self.ce_4 * a3 + self.ce_5 * muscle_vel + self.ce_4
       )
-    fvce = th.clip(nom / den, min=0.)
-    flpe = th.clip((th.exp(self.pe_1 * (muscle_len - self.l0_pe) / self.l0_ce) - 1) / self.pe_den, min=0.)
-    flce = th.exp((- ((muscle_len / self.l0_ce) - 1) ** 2) / self.ce_gamma)
+    fvce = torch.clip(nom / den, min=0.)
+    flpe = torch.clip((torch.exp(self.pe_1 * (muscle_len - self.l0_pe) / self.l0_ce) - 1) / self.pe_den, min=0.)
+    flce = torch.exp((- ((muscle_len / self.l0_ce) - 1) ** 2) / self.ce_gamma)
     force = (activation * flce * fvce + flpe) * self.max_iso_force
-    return th.cat([activation, muscle_len, muscle_vel, flpe, flce, fvce, force], dim=1)
+    return torch.cat([activation, muscle_len, muscle_vel, flpe, flce, fvce, force], dim=1)
 
 
 class CompliantTendonHillMuscle(RigidTendonHillMuscle):
@@ -793,14 +793,14 @@ class CompliantTendonHillMuscle(RigidTendonHillMuscle):
     muscle_len_n = muscle_len / self.l0_ce
     musculotendon_len = geometry_state[:, :1, :]
     tendon_len = musculotendon_len - muscle_len
-    tendon_strain = th.clip((tendon_len - self.l0_se) / self.l0_se, min=0.)
-    muscle_strain = th.clip((muscle_len - self.l0_pe) / self.l0_ce, min=0.)
+    tendon_strain = torch.clip((tendon_len - self.l0_se) / self.l0_se, min=0.)
+    muscle_strain = torch.clip((muscle_len - self.l0_pe) / self.l0_ce, min=0.)
 
     # Compute forces
-    flse = th.clip(self.k_se * (tendon_strain ** 2), max=1.)
+    flse = torch.clip(self.k_se * (tendon_strain ** 2), max=1.)
     # flpe = tf.minimum(self.k_pe * (muscle_strain ** 2), 1.)
     flpe = self.k_pe * (muscle_strain ** 2)
-    active_force = th.clip(flse - flpe, min=0.)
+    active_force = torch.clip(flse - flpe, min=0.)
 
     # Integrate
     d_activation = state_derivative[:, 0:1, :]
@@ -811,7 +811,7 @@ class CompliantTendonHillMuscle(RigidTendonHillMuscle):
 
     muscle_vel = muscle_vel_n * self.vmax
     force = flse * self.max_iso_force
-    return th.concat([activation, new_muscle_len, muscle_vel, flpe, flse, active_force, force], dim=1)
+    return torch.concat([activation, new_muscle_len, muscle_vel, flpe, flse, active_force, force], dim=1)
 
   def _ode(self, excitation, muscle_state):
     activation = muscle_state[:, 0:1, :]
@@ -819,56 +819,56 @@ class CompliantTendonHillMuscle(RigidTendonHillMuscle):
     muscle_len_n = muscle_state[:, 1:2, :] / self.l0_ce
     active_force = muscle_state[:, 5:6, :]
     new_muscle_vel_n = self._normalized_muscle_vel(muscle_len_n, activation, active_force)
-    return th.concat([d_activation, new_muscle_vel_n], dim=1)
+    return torch.concat([d_activation, new_muscle_vel_n], dim=1)
 
   def _get_initial_muscle_state(self, batch_size, geometry_state):
     musculotendon_len = geometry_state[:, 0:1, :]
-    activation = th.ones_like(musculotendon_len, device=self.device) * self.min_activation
-    d_activation = th.zeros_like(musculotendon_len, device=self.device)
+    activation = torch.ones_like(musculotendon_len, device=self.device) * self.min_activation
+    d_activation = torch.zeros_like(musculotendon_len, device=self.device)
 
     # if musculotendon length is negative, raise an error.
     # if musculotendon length is less than tendon slack length, assign all (most of) the length to the tendon.
     # if musculotendon length is more than tendon slack length and less than musculotendon slack length, assign to
-    #  the tendon up to the tendon slack length, and the rest to the muscle length.
+    #  the tendon up to the tendon slack length, and the rest to the muscle lengtorch.
     # if musculotendon length is more than tendon slack length and muscle slack length combined, find the muscle
     #  length that satisfies equilibrium between tendon passive forces and muscle passive forces.
-    muscle_len = th.where(
-      condition=th.less(musculotendon_len, 0.),
-      input=th.tensor(-1., dtype=th.float32, device=self.device),
-      other=th.where(
-        condition=th.less(musculotendon_len, self.l0_se),
+    muscle_len = torch.where(
+      condition=torch.less(musculotendon_len, 0.),
+      input=torch.tensor(-1., dtype=torch.float32, device=self.device),
+      other=torch.where(
+        condition=torch.less(musculotendon_len, self.l0_se),
         input=0.001 * self.l0_ce,
-        other=th.where(
-          condition=th.less(musculotendon_len, self.l0_se + self.l0_pe),
+        other=torch.where(
+          condition=torch.less(musculotendon_len, self.l0_se + self.l0_pe),
           input=musculotendon_len - self.l0_se,
           other=(self.k_pe * self.l0_pe * self.l0_se ** 2 -
             self.k_se * (self.l0_ce ** 2) * musculotendon_len +
             self.k_se * self.l0_ce ** 2 * self.l0_se -
-            self.l0_ce * self.l0_se * th.sqrt(self.k_pe * self.k_se)
+            self.l0_ce * self.l0_se * torch.sqrt(self.k_pe * self.k_se)
             * (-musculotendon_len + self.l0_pe + self.l0_se)) /
            (self.k_pe * self.l0_se ** 2 - self.k_se * self.l0_ce ** 2))))
 
     # tf.debugging.assert_non_negative(muscle_len, message='initial muscle length was < 0.')
     tendon_len = musculotendon_len - muscle_len
-    tendon_strain = th.clip((tendon_len - self.l0_se) / self.l0_se, min=0.)
-    muscle_strain = th.clip((muscle_len - self.l0_pe) / self.l0_ce, min=0.)
+    tendon_strain = torch.clip((tendon_len - self.l0_se) / self.l0_se, min=0.)
+    muscle_strain = torch.clip((muscle_len - self.l0_pe) / self.l0_ce, min=0.)
 
     # Compute forces
-    flse = th.clip(self.k_se * (tendon_strain ** 2), max=1.)
-    flpe = th.clip(self.k_pe * (muscle_strain ** 2), max=1.)
-    active_force = th.clip(flse - flpe, min=0.)
+    flse = torch.clip(self.k_se * (tendon_strain ** 2), max=1.)
+    flpe = torch.clip(self.k_pe * (muscle_strain ** 2), max=1.)
+    active_force = torch.clip(flse - flpe, min=0.)
 
     muscle_vel_n = self._normalized_muscle_vel(muscle_len / self.l0_ce, activation, active_force)
-    muscle_state = th.concat([activation, muscle_len], dim=1)
-    state_derivative = th.concat([d_activation, muscle_vel_n], dim=1)
+    muscle_state = torch.concat([activation, muscle_len], dim=1)
+    state_derivative = torch.concat([d_activation, muscle_vel_n], dim=1)
 
     return self.integrate(self.dt, state_derivative, muscle_state, geometry_state)
 
   def _normalized_muscle_vel(self, muscle_len_n, activation, active_force):
-    flce = th.clip(1. + (- muscle_len_n ** 2 + 2 * muscle_len_n - 1) / self.f_iso_n_den, min=self.min_flce)
-    a_rel_st = th.where(th.less(muscle_len_n, 1.), input=.41 * flce, other=.41)
-    b_rel_st = th.where(
-      condition=th.less(activation, self.q_crit),
+    flce = torch.clip(1. + (- muscle_len_n ** 2 + 2 * muscle_len_n - 1) / self.f_iso_n_den, min=self.min_flce)
+    a_rel_st = torch.where(torch.less(muscle_len_n, 1.), input=.41 * flce, other=.41)
+    b_rel_st = torch.where(
+      condition=torch.less(activation, self.q_crit),
       input=5.2 * (1 - .9 * ((activation - self.q_crit) / (5e-3 - self.q_crit))) ** 2,
       other=5.2)
     # inv of slope at isometric point wrt concentric curve
@@ -884,16 +884,16 @@ class CompliantTendonHillMuscle(RigidTendonHillMuscle):
     sqrt_term = active_force ** 2 + 2 * active_force * p1 * self.s_as + \
       2 * active_force * p3 + p1 ** 2 * self.s_as ** 2 + 2 * p1 * p3 * self.s_as +\
       p2_containing_term + p3 ** 2
-    #cond = th.logical_or(th.less(sqrt_term, 0.), th.greater_equal(active_force, f_x_a))
-    #th._assert(cond, message='root that should be used is negative.')
-    sqrt_term = th.clip(sqrt_term, min=0.)
+    #cond = torch.logical_or(torch.less(sqrt_term, 0.), torch.greater_equal(active_force, f_x_a))
+    #torch._assert(cond, message='root that should be used is negative.')
+    sqrt_term = torch.clip(sqrt_term, min=0.)
 
-    new_muscle_vel_nom = th.where(
-      condition=th.less(active_force, f_x_a),
+    new_muscle_vel_nom = torch.where(
+      condition=torch.less(active_force, f_x_a),
       input=b_rel_st * (active_force - f_x_a),
-      other=- active_force + p1 * self.s_as - p3 - th.sqrt(sqrt_term))
-    new_muscle_vel_den = th.where(
-      condition=th.less(active_force, f_x_a),
+      other=- active_force + p1 * self.s_as - p3 - torch.sqrt(sqrt_term))
+    new_muscle_vel_den = torch.where(
+      condition=torch.less(active_force, f_x_a),
       input=active_force + activation * a_rel_st,
       other=- 2 * self.s_as)
 

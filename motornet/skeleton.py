@@ -1,9 +1,9 @@
-import torch as th
+import torch
 import numpy as np
 from typing import Union
 
 
-class Skeleton(th.nn.Module):
+class Skeleton(torch.nn.Module):
   """Base class for `Skeleton` objects.
 
   Args:
@@ -41,7 +41,7 @@ class Skeleton(th.nn.Module):
 
     super().__init__()
 
-    self._device = th.device('cpu')
+    self._device = torch.device('cpu')
     self.__name__ = name
     self.dof = dof
     self.space_dim = space_dim
@@ -49,7 +49,7 @@ class Skeleton(th.nn.Module):
     self.state_dim = kwargs.get('state_dim', self.dof * 2)
     self.output_dim = kwargs.get('output_dim', self.state_dim)
     self.geometry_state_dim = 2 + self.dof # two geometry variable per muscle: path_length, path_velocity
-    self.default_endpoint_load = th.zeros((1, self.space_dim)) #tf.zeros((1, self.space_dim), dtype=tf.float32)
+    self.default_endpoint_load = torch.zeros((1, self.space_dim)) #tf.zeros((1, self.space_dim), dtype=tf.float32)
 
     self.pos_lower_bound = pos_lower_bound
     self.pos_upper_bound = pos_upper_bound
@@ -59,19 +59,19 @@ class Skeleton(th.nn.Module):
     self.clip_position = None
     self.init = False
     self.built = False
-    #self.detach = lambda x: x.cpu().detach().numpy() if th.is_tensor(x) else x
+    #self.detach = lambda x: x.cpu().detach().numpy() if torch.is_tensor(x) else x
 
     self.clip = self._clip
 
   @staticmethod
   def _clip(x, lb, ub):
-    return th.min(th.max(x, lb), ub)
+    return torch.min(torch.max(x, lb), ub)
 
   def clip_method(self, x):
     return self.clip(x, self.pos_lower_bound, self.pos_upper_bound)
 
   def detach(self, x):
-    return x.cpu().detach().numpy() if th.is_tensor(x) else x
+    return x.cpu().detach().numpy() if torch.is_tensor(x) else x
   
   def build(
       self,
@@ -102,10 +102,10 @@ class Skeleton(th.nn.Module):
     
     for _attr in ('pos_upper_bound', 'pos_lower_bound', 'vel_upper_bound', 'vel_lower_bound'):
       self.__dict__.pop(_attr, None)
-    self.register_buffer('pos_upper_bound', th.as_tensor(pos_upper_bound, dtype=th.float32).reshape(1, -1))
-    self.register_buffer('pos_lower_bound', th.as_tensor(pos_lower_bound, dtype=th.float32).reshape(1, -1))
-    self.register_buffer('vel_upper_bound', th.as_tensor(vel_upper_bound, dtype=th.float32).reshape(1, -1))
-    self.register_buffer('vel_lower_bound', th.as_tensor(vel_lower_bound, dtype=th.float32).reshape(1, -1))
+    self.register_buffer('pos_upper_bound', torch.as_tensor(pos_upper_bound, dtype=torch.float32).reshape(1, -1))
+    self.register_buffer('pos_lower_bound', torch.as_tensor(pos_lower_bound, dtype=torch.float32).reshape(1, -1))
+    self.register_buffer('vel_upper_bound', torch.as_tensor(vel_upper_bound, dtype=torch.float32).reshape(1, -1))
+    self.register_buffer('vel_lower_bound', torch.as_tensor(vel_lower_bound, dtype=torch.float32).reshape(1, -1))
     self.dt = timestep
     self.clip_position = self.clip_method
     self.built = True
@@ -210,8 +210,8 @@ class Skeleton(th.nn.Module):
       A `tensor` containing the clipped velocities, with same dimensionality as the `vel` input argument.
     """
     vel = self.clip(vel, self.vel_lower_bound, self.vel_upper_bound)
-    vel = th.where(th.logical_and(vel < 0, pos <= self.pos_lower_bound), 0., vel)
-    vel = th.where(th.logical_and(vel > 0, pos >= self.pos_upper_bound), 0., vel)
+    vel = torch.where(torch.logical_and(vel < 0, pos <= self.pos_lower_bound), 0., vel)
+    vel = torch.where(torch.logical_and(vel > 0, pos >= self.pos_upper_bound), 0., vel)
     return vel
 
   def get_base_config(self):
@@ -246,12 +246,12 @@ class Skeleton(th.nn.Module):
     self.__setattr__(name, value)
 
   def to(self, *args, **kwargs):
-    if args and isinstance(args[0], (str, th.device)):
-      self._device = th.device(args[0])
-    elif args and isinstance(args[0], th.Tensor):
+    if args and isinstance(args[0], (str, torch.device)):
+      self._device = torch.device(args[0])
+    elif args and isinstance(args[0], torch.Tensor):
       self._device = args[0].device
     elif 'device' in kwargs:
-      self._device = th.device(kwargs['device'])
+      self._device = torch.device(kwargs['device'])
     return super().to(*args, **kwargs)
 
   @property
@@ -279,7 +279,7 @@ class PointMass(Skeleton):
     super().__init__(dof=space_dim, space_dim=space_dim, name=name, **kwargs)
     self.mass = mass
     # to speed up runtime during `self._path2cartesian` method
-    dpos_ddof = th.nn.functional.one_hot(th.arange(0, self.dof) % self.dof).to(th.float32)[None, :, :, None]
+    dpos_ddof = torch.nn.functional.one_hot(torch.arange(0, self.dof) % self.dof).to(torch.float32)[None, :, :, None]
     self.register_buffer('dpos_ddof', dpos_ddof)
 
   def _ode(self, inputs, joint_state, endpoint_load):
@@ -291,14 +291,14 @@ class PointMass(Skeleton):
     new_pos = old_pos + old_vel * dt
     new_vel = self.clip_velocity(new_pos, new_vel)
     new_pos = self.clip_position(new_pos)
-    return th.cat([new_pos, new_vel], dim=1)
+    return torch.cat([new_pos, new_vel], dim=1)
   
   def _path2cartesian(self, path_coordinates, path_fixation_body, joint_state):
     pos, vel = joint_state[:, :, None].chunk(2, dim=1)
     # if fixed on the point mass, then add the point-mass position / velocity to the fixation point coordinate
-    pos = th.where(path_fixation_body == 0, 0., pos) + path_coordinates
-    vel = th.where(path_fixation_body == 0, 0., vel)
-    dpos_ddof = th.where(path_fixation_body == 0, 0., self.dpos_ddof)
+    pos = torch.where(path_fixation_body == 0, 0., pos) + path_coordinates
+    vel = torch.where(path_fixation_body == 0, 0., vel)
+    dpos_ddof = torch.where(path_fixation_body == 0, 0., self.dpos_ddof)
     return pos, vel, dpos_ddof
 
   def _joint2cartesian(self, joint_state):
@@ -367,8 +367,8 @@ class TwoDofArm(Skeleton):
     inertia_12_m = self.m2 * self.L1 * self.L2g
     inertia_c = np.array([[[inertia_11_c, inertia_12_c], [inertia_12_c, inertia_22_c]]]).astype(np.float32)
     inertia_m = np.array([[[inertia_11_m, inertia_12_m], [inertia_12_m, 0.]]]).astype(np.float32)
-    self.register_buffer('inertia_m', th.tensor(inertia_m.reshape((1, 2, 2)), dtype=th.float32))
-    self.register_buffer('inertia_c', th.tensor(inertia_c.reshape((1, 2, 2)), dtype=th.float32))
+    self.register_buffer('inertia_m', torch.tensor(inertia_m.reshape((1, 2, 2)), dtype=torch.float32))
+    self.register_buffer('inertia_c', torch.tensor(inertia_c.reshape((1, 2, 2)), dtype=torch.float32))
 
     self.coriolis_1 = - self.m2 * self.L1 * self.L2g
     self.coriolis_2 = self.m2 * self.L1 * self.L2g
@@ -378,12 +378,12 @@ class TwoDofArm(Skeleton):
     # first two elements of state are joint position, last two elements are joint angular velocities
     pos0, pos1, vel0, vel1 = joint_state[:, 0], joint_state[:, 1], joint_state[:, 2], joint_state[:, 3]
     pos_sum = pos0 + pos1
-    c1 = th.cos(pos0)
-    c2 = th.cos(pos1)
-    c12 = th.cos(pos_sum)
-    s1 = th.sin(pos0)
-    s2 = th.sin(pos1)
-    s12 = th.sin(pos_sum)
+    c1 = torch.cos(pos0)
+    c2 = torch.cos(pos1)
+    c12 = torch.cos(pos_sum)
+    s1 = torch.sin(pos0)
+    s2 = torch.sin(pos1)
+    s12 = torch.sin(pos_sum)
 
     # inertia matrix (batch_size x 2 x 2)
     inertia = self.inertia_c + c2[:, None, None] * self.inertia_m
@@ -391,7 +391,7 @@ class TwoDofArm(Skeleton):
     # coriolis torques (batch_size x 2) plus a damping term (scaled by self.c_viscosity)
     coriolis_1 = (self.coriolis_1 * s2 * (2 * vel0 + vel1)) * vel1 + self.c_viscosity * vel0
     coriolis_2 = (self.coriolis_2 * s2 * vel0) * vel0 + self.c_viscosity * vel1
-    coriolis = th.stack([coriolis_1, coriolis_2], dim=1)
+    coriolis = torch.stack([coriolis_1, coriolis_2], dim=1)
 
     # jacobian to distribute external loads (forces) applied at endpoint to the two rigid links
     jacobian_11 = -self.L1*s1 - self.L2*s12
@@ -403,15 +403,15 @@ class TwoDofArm(Skeleton):
     # torque = jacobian.T @ endpoint_load
     r_col = (jacobian_11 * endpoint_load[:, 0]) + (jacobian_21 * endpoint_load[:, 1]) # these are torques
     l_col = (jacobian_12 * endpoint_load[:, 0]) + (jacobian_22 * endpoint_load[:, 1])
-    torques = inputs + th.stack([r_col, l_col], dim=1)
+    torques = inputs + torch.stack([r_col, l_col], dim=1)
 
     rhs = -coriolis[:, :, None] + torques[:, :, None]
 
     denom = 1 / (inertia[:, 0, 0] * inertia[:, 1, 1] - inertia[:, 0, 1] * inertia[:, 1, 0])
-    l_col = th.stack([inertia[:, 1, 1], -inertia[:, 1, 0]], dim=1)
-    r_col = th.stack([-inertia[:, 0, 1], inertia[:, 0, 0]], dim=1)
-    inertia_inv = denom[:, None, None] * th.stack([l_col, r_col], dim=2)
-    new_acc_3d = th.matmul(inertia_inv, rhs)
+    l_col = torch.stack([inertia[:, 1, 1], -inertia[:, 1, 0]], dim=1)
+    r_col = torch.stack([-inertia[:, 0, 1], inertia[:, 0, 0]], dim=1)
+    inertia_inv = denom[:, None, None] * torch.stack([l_col, r_col], dim=2)
+    new_acc_3d = torch.matmul(inertia_inv, rhs)
     return new_acc_3d[:, :, 0]  # somehow tf.squeeze doesn't work well in a Lambda wrap...
 
   def _integrate(self, dt, state_derivative, joint_state):
@@ -423,25 +423,25 @@ class TwoDofArm(Skeleton):
     # We clip position after velocity to ensure any off-space position is taken into account when clipping velocity.
     new_vel = self.clip_velocity(new_pos, new_vel)
     new_pos = self.clip_position(new_pos)
-    return th.cat([new_pos, new_vel], dim=1)
+    return torch.cat([new_pos, new_vel], dim=1)
 
   def _joint2cartesian(self, joint_state):
     # compute cartesian state from joint state
     # reshape to have all time steps lined up in 1st dimension
-    j = th.reshape(joint_state, shape=(-1, self.state_dim))
+    j = torch.reshape(joint_state, shape=(-1, self.state_dim))
     pos0, pos1, vel0, vel1 = j[:, 0], j[:, 1], j[:, 2], j[:, 3]
     pos_sum = pos0 + pos1
 
-    c1 = th.cos(pos0)
-    s1 = th.sin(pos0)
-    c12 = th.cos(pos_sum)
-    s12 = th.sin(pos_sum)
+    c1 = torch.cos(pos0)
+    s1 = torch.sin(pos0)
+    c12 = torch.cos(pos_sum)
+    s12 = torch.sin(pos_sum)
 
     end_pos_x = self.L1 * c1 + self.L2 * c12
     end_pos_y = self.L1 * s1 + self.L2 * s12
     end_vel_x = - (self.L1 * s1 + self.L2 * s12) * vel0 - self.L2 * s12 * vel1
     end_vel_y = (self.L1 * c1 + self.L2 * c12) * vel0 + self.L2 * c12 * vel1
-    return th.stack([end_pos_x, end_pos_y, end_vel_x, end_vel_y], dim=1)
+    return torch.stack([end_pos_x, end_pos_y, end_vel_x, end_vel_y], dim=1)
 
   def _path2cartesian(self, path_coordinates, path_fixation_body, joint_state):
     n_points = path_fixation_body.numel()
@@ -449,8 +449,8 @@ class TwoDofArm(Skeleton):
 
     sho, elb_wrt_sho = joint_angles.chunk(2, axis=1)
     elb = elb_wrt_sho + sho
-    elb_y = self.L1 * th.sin(sho)[:, :, None]
-    elb_x = self.L1 * th.cos(sho)[:, :, None]
+    elb_y = self.L1 * torch.sin(sho)[:, :, None]
+    elb_x = self.L1 * torch.cos(sho)[:, :, None]
 
     # If we want the position of a fixation point relative to the origin of its bone given global cartesian
     # coordinates, then we use the joint angles; here we are trying to do the inverse of that, that is getting the
@@ -460,38 +460,38 @@ class TwoDofArm(Skeleton):
     # (path_fixation_body = 0), the shoulder angle if it is fixed on the upper arm (path_fixation_body = 1) and the
     # eblow angle if it is fixed on the forearm (path_fixation_body = 2).
     flat_path_fixation_body = path_fixation_body.reshape(-1)
-    ang = th.where(flat_path_fixation_body == 0., 0., th.where(flat_path_fixation_body == 1., -sho, -elb))
-    ca = th.cos(ang)
-    sa = th.sin(ang)
+    ang = torch.where(flat_path_fixation_body == 0., 0., torch.where(flat_path_fixation_body == 1., -sho, -elb))
+    ca = torch.cos(ang)
+    sa = torch.sin(ang)
 
     # rotation matrix to transform the bone-relative coordinates into global coordinates
-    rot1 = th.concat([ca, sa], dim=1).reshape(-1, 2, n_points)
-    rot2 = th.concat([-sa, ca], dim=1).reshape(-1, 2, n_points)
+    rot1 = torch.concat([ca, sa], dim=1).reshape(-1, 2, n_points)
+    rot2 = torch.concat([-sa, ca], dim=1).reshape(-1, 2, n_points)
 
     # derivative of each fixation point's position wrt the angle of the bone they are fixed on
-    dx_da = th.sum(-path_coordinates * rot2, dim=1, keepdims=True)
-    dy_da = th.sum(path_coordinates * rot1, dim=1, keepdims=True)
+    dx_da = torch.sum(-path_coordinates * rot2, dim=1, keepdims=True)
+    dy_da = torch.sum(path_coordinates * rot1, dim=1, keepdims=True)
 
     # Derivative of each fixation point's position wrt each angle
     # This is counter-intuitive but the derivative of any point wrt the shoulder angle (da1) is equal to the
     # derivative of that point wrt the angle of the bone they are actually fixed on (dx_da or dy_da), even if that
     # bone is the forearm and not the upper arm. However, if the bone is indeed the forearm, then an additional term
     # must be added (see below).
-    dx_da1 = th.where(path_fixation_body == 0., 0., dx_da) + th.where(path_fixation_body == 2., -elb_y, 0.)
-    dy_da1 = th.where(path_fixation_body == 0., 0., dy_da) + th.where(path_fixation_body == 2., elb_x, 0.)
-    dx_da2 = th.where(path_fixation_body == 2., dx_da, 0.)
-    dy_da2 = th.where(path_fixation_body == 2., dy_da, 0.)
+    dx_da1 = torch.where(path_fixation_body == 0., 0., dx_da) + torch.where(path_fixation_body == 2., -elb_y, 0.)
+    dy_da1 = torch.where(path_fixation_body == 0., 0., dy_da) + torch.where(path_fixation_body == 2., elb_x, 0.)
+    dx_da2 = torch.where(path_fixation_body == 2., dx_da, 0.)
+    dy_da2 = torch.where(path_fixation_body == 2., dy_da, 0.)
 
-    dxy_da1 = th.concat([dx_da1, dy_da1], dim=1)
-    dxy_da2 = th.concat([dx_da2, dy_da2], dim=1)
-    dxy_da = th.concat([dxy_da1[:, :, None, :], dxy_da2[:, :, None, :]], dim=2)
+    dxy_da1 = torch.concat([dx_da1, dy_da1], dim=1)
+    dxy_da2 = torch.concat([dx_da2, dy_da2], dim=1)
+    dxy_da = torch.concat([dxy_da1[:, :, None, :], dxy_da2[:, :, None, :]], dim=2)
 
     sho_vel_3d = joint_vel[:, 0, None, None]
     elb_vel_3d = joint_vel[:, 1, None, None] + sho_vel_3d
     dxy_dt = dxy_da1 * sho_vel_3d + dxy_da2 * elb_vel_3d # by virtue of the chain rule
 
-    bone_origin = th.where(path_fixation_body == 2, th.concat([elb_x, elb_y], dim=1), 0.)
-    xy = th.concat([dy_da, -dx_da], dim=1) + bone_origin
+    bone_origin = torch.where(path_fixation_body == 2, torch.concat([elb_x, elb_y], dim=1), 0.)
+    xy = torch.concat([dy_da, -dx_da], dim=1) + bone_origin
     return xy, dxy_dt, dxy_da
 
   def get_save_config(self):

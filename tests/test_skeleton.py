@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-import torch as th
+import torch
 
 from motornet.skeleton import PointMass, TwoDofArm
 from motornet.effector import ReluPointMass24, RigidTendonArm26
@@ -34,21 +34,21 @@ class TestPointMass:
         assert skel.dof == 3
 
     def test_joint2cartesian_is_identity(self, pm):
-        state = th.tensor([[0.3, -0.5, 0.1, -0.2]])
+        state = torch.tensor([[0.3, -0.5, 0.1, -0.2]])
         out = pm.joint2cartesian(state)
-        assert th.allclose(out, state)
+        assert torch.allclose(out, state)
 
     def test_joint2cartesian_preserves_batch_dimension(self, pm):
-        state = th.randn(5, 4)
+        state = torch.randn(5, 4)
         out = pm.joint2cartesian(state)
         assert out.shape == (5, 4)
 
     def test_path2cartesian_worldspace_fixation_is_fixed(self, pm_effector, pm):
         """Fixation on worldspace (body index 0) should stay at its coordinates."""
         # Set point-mass at some position
-        pos = th.tensor([[0.3, 0.7, 0.0, 0.0]])
-        path_coords = th.tensor([[[2.0], [3.0]]], dtype=th.float32)  # (1, 2, 1)
-        path_body = th.tensor([[[0.0]]], dtype=th.float32)            # body index 0 = worldspace
+        pos = torch.tensor([[0.3, 0.7, 0.0, 0.0]])
+        path_coords = torch.tensor([[[2.0], [3.0]]], dtype=torch.float32)  # (1, 2, 1)
+        path_body = torch.tensor([[[0.0]]], dtype=torch.float32)            # body index 0 = worldspace
         xy, dxy_dt, _ = pm.path2cartesian(path_coords, path_body, pos)
         # World-fixed point has velocity zero and position equal to its coords
         assert xy[0, 0, 0].item() == pytest.approx(2.0, abs=1e-5)
@@ -58,16 +58,16 @@ class TestPointMass:
 
     def test_path2cartesian_body_fixation_moves_with_mass(self, pm):
         """Fixation on the body (index 1, coord=[0,0]) should be at the mass's position."""
-        pos = th.tensor([[0.4, -0.3, 0.0, 0.0]])
-        path_coords = th.tensor([[[0.0], [0.0]]], dtype=th.float32)  # origin of the body
-        path_body = th.tensor([[[1.0]]], dtype=th.float32)            # body index 1 = the mass
+        pos = torch.tensor([[0.4, -0.3, 0.0, 0.0]])
+        path_coords = torch.tensor([[[0.0], [0.0]]], dtype=torch.float32)  # origin of the body
+        path_body = torch.tensor([[[1.0]]], dtype=torch.float32)            # body index 1 = the mass
         xy, _, _ = pm.path2cartesian(path_coords, path_body, pos)
         assert xy[0, 0, 0].item() == pytest.approx(0.4, abs=1e-5)
         assert xy[0, 1, 0].item() == pytest.approx(-0.3, abs=1e-5)
 
     def test_integrate_zero_force_zero_velocity_no_change(self, pm):
-        state = th.tensor([[0.5, -0.3, 0.0, 0.0]])  # [x, y, vx, vy]
-        derivative = th.zeros(1, 2)  # zero force
+        state = torch.tensor([[0.5, -0.3, 0.0, 0.0]])  # [x, y, vx, vy]
+        derivative = torch.zeros(1, 2)  # zero force
         new_state = pm.integrate(dt=0.01, state_derivative=derivative, joint_state=state)
         # Position should not change (vel=0); velocity stays 0
         assert new_state[0, 0].item() == pytest.approx(0.5, abs=1e-5)
@@ -75,44 +75,44 @@ class TestPointMass:
 
     def test_integrate_velocity_updates_position(self, pm):
         # Starting at [0, 0] with velocity [1, 0], after dt=0.1 → x ≈ 0.1
-        state = th.tensor([[0.0, 0.0, 1.0, 0.0]])
-        derivative = th.zeros(1, 2)
+        state = torch.tensor([[0.0, 0.0, 1.0, 0.0]])
+        derivative = torch.zeros(1, 2)
         new_state = pm.integrate(dt=0.1, state_derivative=derivative, joint_state=state)
         assert new_state[0, 0].item() == pytest.approx(0.1, abs=1e-5)
 
     def test_clip_position_clamps_to_bounds(self, pm):
         # PointMass bounds are [-1, 1] for ReluPointMass24
-        state_over = th.tensor([[2.0, 2.0, 0.0, 0.0]])
-        derivative = th.zeros(1, 2)
+        state_over = torch.tensor([[2.0, 2.0, 0.0, 0.0]])
+        derivative = torch.zeros(1, 2)
         new_state = pm.integrate(dt=0.01, state_derivative=derivative, joint_state=state_over)
         assert new_state[0, 0].item() <= pm.pos_upper_bound[0, 0].item() + 1e-4
 
     def test_clip_velocity_zero_at_lower_bound(self, pm):
         # At lower position boundary with negative velocity → velocity zeroed
         lb = pm.pos_lower_bound[0, 0].item()
-        pos = th.tensor([[lb, 0.0]])
-        vel = th.tensor([[-1.0, 0.0]])  # moving toward lower boundary
+        pos = torch.tensor([[lb, 0.0]])
+        vel = torch.tensor([[-1.0, 0.0]])  # moving toward lower boundary
         clipped = pm.clip_velocity(pos, vel)
         assert clipped[0, 0].item() == pytest.approx(0.0, abs=1e-5)
 
     def test_clip_velocity_zero_at_upper_bound(self, pm):
         ub = pm.pos_upper_bound[0, 0].item()
-        pos = th.tensor([[ub, 0.0]])
-        vel = th.tensor([[1.0, 0.0]])  # moving toward upper boundary
+        pos = torch.tensor([[ub, 0.0]])
+        vel = torch.tensor([[1.0, 0.0]])  # moving toward upper boundary
         clipped = pm.clip_velocity(pos, vel)
         assert clipped[0, 0].item() == pytest.approx(0.0, abs=1e-5)
 
     def test_clip_velocity_allows_motion_away_from_lower_bound(self, pm):
         lb = pm.pos_lower_bound[0, 0].item()
-        pos = th.tensor([[lb, 0.0]])
-        vel = th.tensor([[1.0, 0.0]])  # moving AWAY from lower boundary
+        pos = torch.tensor([[lb, 0.0]])
+        vel = torch.tensor([[1.0, 0.0]])  # moving AWAY from lower boundary
         clipped = pm.clip_velocity(pos, vel)
         assert clipped[0, 0].item() == pytest.approx(1.0, abs=1e-5)
 
     def test_clip_velocity_allows_motion_away_from_upper_bound(self, pm):
         ub = pm.pos_upper_bound[0, 0].item()
-        pos = th.tensor([[ub, 0.0]])
-        vel = th.tensor([[-1.0, 0.0]])  # moving AWAY from upper boundary
+        pos = torch.tensor([[ub, 0.0]])
+        vel = torch.tensor([[-1.0, 0.0]])  # moving AWAY from upper boundary
         clipped = pm.clip_velocity(pos, vel)
         assert clipped[0, 0].item() == pytest.approx(-1.0, abs=1e-5)
 
@@ -152,7 +152,7 @@ class TestTwoDofArm:
 
     def test_joint2cartesian_at_zero_angles_gives_L1_plus_L2(self):
         arm = TwoDofArm()
-        state = th.tensor([[0.0, 0.0, 0.0, 0.0]])
+        state = torch.tensor([[0.0, 0.0, 0.0, 0.0]])
         cart = arm.joint2cartesian(state)
         expected_x = arm.L1 + arm.L2  # cos(0) + cos(0) = 1 + 1
         assert cart[0, 0].item() == pytest.approx(expected_x, abs=1e-5)
@@ -160,7 +160,7 @@ class TestTwoDofArm:
 
     def test_joint2cartesian_at_90deg_shoulder_gives_vertical(self):
         arm = TwoDofArm()
-        state = th.tensor([[np.pi / 2, 0.0, 0.0, 0.0]])
+        state = torch.tensor([[np.pi / 2, 0.0, 0.0, 0.0]])
         cart = arm.joint2cartesian(state)
         # end_pos_x = L1*cos(π/2) + L2*cos(π/2) ≈ 0
         # end_pos_y = L1*sin(π/2) + L2*sin(π/2) = L1 + L2
@@ -169,7 +169,7 @@ class TestTwoDofArm:
 
     def test_joint2cartesian_at_zero_velocity_gives_zero_endpoint_velocity(self):
         arm = TwoDofArm()
-        state = th.tensor([[0.5, 0.3, 0.0, 0.0]])
+        state = torch.tensor([[0.5, 0.3, 0.0, 0.0]])
         cart = arm.joint2cartesian(state)
         # With vel=0, endpoint velocity should be 0
         assert cart[0, 2].item() == pytest.approx(0.0, abs=1e-5)
@@ -177,25 +177,25 @@ class TestTwoDofArm:
 
     def test_joint2cartesian_batch(self):
         arm = TwoDofArm()
-        state = th.zeros(5, 4)
+        state = torch.zeros(5, 4)
         cart = arm.joint2cartesian(state)
         assert cart.shape == (5, 4)
         # All should give same result
-        assert th.allclose(cart[0], cart[1])
+        assert torch.allclose(cart[0], cart[1])
 
     def test_ode_zero_torques_zero_velocity_zero_acceleration(self):
         arm = TwoDofArm()
-        state = th.tensor([[0.5, 0.5, 0.0, 0.0]])
-        torques = th.zeros(1, 2)
-        endpoint_load = th.zeros(1, 2)
+        state = torch.tensor([[0.5, 0.5, 0.0, 0.0]])
+        torques = torch.zeros(1, 2)
+        endpoint_load = torch.zeros(1, 2)
         acc = arm.ode(torques, state, endpoint_load)
-        assert th.allclose(acc, th.zeros(1, 2), atol=1e-5)
+        assert torch.allclose(acc, torch.zeros(1, 2), atol=1e-5)
 
     def test_ode_nonzero_torque_gives_nonzero_acceleration(self):
         arm = TwoDofArm()
-        state = th.tensor([[0.5, 0.5, 0.0, 0.0]])
-        torques = th.tensor([[10.0, 0.0]])
-        endpoint_load = th.zeros(1, 2)
+        state = torch.tensor([[0.5, 0.5, 0.0, 0.0]])
+        torques = torch.tensor([[10.0, 0.0]])
+        endpoint_load = torch.zeros(1, 2)
         acc = arm.ode(torques, state, endpoint_load)
         assert acc.abs().sum().item() > 0
 
@@ -209,8 +209,8 @@ class TestTwoDofArm:
             assert det > 0, f"Inertia matrix not positive definite at elbow={elb}"
 
     def test_integrate_updates_position_and_velocity(self, arm):
-        state = th.tensor([[0.3, 0.5, 0.1, -0.1]])
-        derivative = th.tensor([[5.0, -5.0]])
+        state = torch.tensor([[0.3, 0.5, 0.1, -0.1]])
+        derivative = torch.tensor([[5.0, -5.0]])
         new_state = arm.integrate(dt=0.01, state_derivative=derivative, joint_state=state)
         # Position = old_pos + old_vel * dt
         assert new_state[0, 0].item() == pytest.approx(0.3 + 0.1 * 0.01, abs=1e-4)
@@ -218,15 +218,15 @@ class TestTwoDofArm:
 
     def test_integrate_respects_position_bounds(self, arm):
         ub = arm.pos_upper_bound[0, 0].item()
-        state = th.tensor([[ub + 0.5, 0.5, 0.0, 0.0]])
-        derivative = th.zeros(1, 2)
+        state = torch.tensor([[ub + 0.5, 0.5, 0.0, 0.0]])
+        derivative = torch.zeros(1, 2)
         new_state = arm.integrate(dt=0.01, state_derivative=derivative, joint_state=state)
         assert new_state[0, 0].item() <= ub + 1e-5
 
     def test_clip_velocity_zeroed_at_lower_pos_bound(self, arm):
         lb = arm.pos_lower_bound[0, 0].item()
-        pos = th.tensor([[lb, 0.5]])
-        vel = th.tensor([[-1.0, 0.0]])
+        pos = torch.tensor([[lb, 0.5]])
+        vel = torch.tensor([[-1.0, 0.0]])
         clipped = arm.clip_velocity(pos, vel)
         assert clipped[0, 0].item() == pytest.approx(0.0, abs=1e-5)
 

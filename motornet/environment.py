@@ -1,11 +1,11 @@
 import numpy as np
-import torch as th
+import torch
 import gymnasium as gym
 from gymnasium.utils import seeding
 from typing import Any
 
 
-class Environment(gym.Env, th.nn.Module):
+class Environment(gym.Env, torch.nn.Module):
   """Base class for environments.
 
   Args:
@@ -55,7 +55,7 @@ class Environment(gym.Env, th.nn.Module):
     
     super().__init__(**kwargs)
 
-    self._device = th.device('cpu')
+    self._device = torch.device('cpu')
     self.__name__ = name
     self.effector = effector.to(self.device)
     self.dt = self.effector.dt
@@ -105,7 +105,7 @@ class Environment(gym.Env, th.nn.Module):
     self._build_spaces()
 
   def detach(self, x):
-    return x.cpu().detach().numpy() if th.is_tensor(x) else x
+    return x.cpu().detach().numpy() if torch.is_tensor(x) else x
   
   def _build_spaces(self):
     self.action_space = gym.spaces.Box(low=0., high=1., shape=(self.effector.n_muscles,), dtype=np.float32)
@@ -124,7 +124,7 @@ class Environment(gym.Env, th.nn.Module):
   # # # The methods below are those MOST likely to be overwritten by users creating custom tasks
   # # # ========================================================================================
   # # # ========================================================================================
-  def get_proprioception(self) -> th.Tensor:
+  def get_proprioception(self) -> torch.Tensor:
     """
     Returns a `(batch_size, n_features)` `tensor` containing the instantaneous (non-delayed) proprioceptive 
     feedback. By default, this is the normalized muscle length for each muscle, followed by the normalized
@@ -133,10 +133,10 @@ class Environment(gym.Env, th.nn.Module):
     """
     mlen = self.states["muscle"][:, 1:2, :] / self.muscle.l0_ce
     mvel = self.states["muscle"][:, 2:3, :] / self.muscle.vmax
-    prop = th.concatenate([mlen, mvel], dim=-1).squeeze(dim=1)
+    prop = torch.concatenate([mlen, mvel], dim=-1).squeeze(dim=1)
     return self.apply_noise(prop, self.proprioception_noise)
 
-  def get_vision(self) -> th.Tensor:
+  def get_vision(self) -> torch.Tensor:
     """
     Returns a `(batch_size, n_features)` `tensor` containing the instantaneous (non-delayed) visual 
     feedback. By default, this is the cartesian position of the end-point effector, that is, the fingertip.
@@ -146,7 +146,7 @@ class Environment(gym.Env, th.nn.Module):
     vis = self.states["fingertip"]
     return self.apply_noise(vis, self.vision_noise)
 
-  def get_obs(self, action=None, deterministic: bool = False) -> th.Tensor | np.ndarray:
+  def get_obs(self, action=None, deterministic: bool = False) -> torch.Tensor | np.ndarray:
     """
     Returns a `(batch_size, n_features)` `tensor` containing the (potientially time-delayed) observations.
     By default, this is the task goal, followed by the output of the :meth:`get_proprioception()` method, 
@@ -163,7 +163,7 @@ class Environment(gym.Env, th.nn.Module):
       self.obs_buffer["proprioception"][0],
       ] + self.obs_buffer["action"][:self.action_frame_stacking]
     
-    obs = th.cat(obs_as_list, dim=-1)
+    obs = torch.cat(obs_as_list, dim=-1)
 
     if deterministic is False:
       obs = self.apply_noise(obs, noise=self.obs_noise)
@@ -172,10 +172,10 @@ class Environment(gym.Env, th.nn.Module):
 
   def step(
       self,
-      action: th.Tensor | np.ndarray,
+      action: torch.Tensor | np.ndarray,
       deterministic: bool = False,
       **kwargs,
-    ) -> tuple[th.Tensor | np.ndarray, bool, bool, dict[str, Any]]:
+    ) -> tuple[torch.Tensor | np.ndarray, bool, bool, dict[str, Any]]:
     """
     Perform one simulation step. This method is likely to be overwritten by any subclass to implement user-defined 
     computations, such as reward value calculation for reinforcement learning, custom truncation or termination
@@ -203,7 +203,7 @@ class Environment(gym.Env, th.nn.Module):
     
     self.elapsed += self.dt
 
-    action = action if th.is_tensor(action) else th.tensor(action, dtype=th.float32).to(self.device)
+    action = action if torch.is_tensor(action) else torch.tensor(action, dtype=torch.float32).to(self.device)
     noisy_action = action
     if deterministic is False:
       noisy_action = self.apply_noise(noisy_action, noise=self.action_noise)
@@ -258,7 +258,7 @@ class Environment(gym.Env, th.nn.Module):
 
     options = {} if options is None else options
     batch_size: int = options.get("batch_size", 1)
-    joint_state: th.Tensor | np.ndarray | None = options.get("joint_state", None)
+    joint_state: torch.Tensor | np.ndarray | None = options.get("joint_state", None)
     deterministic: bool = options.get("deterministic", False)
 
     if joint_state is not None:
@@ -268,15 +268,15 @@ class Environment(gym.Env, th.nn.Module):
     else:
       joint_state = self.q_init
 
-    #self.muscle_normalizer = self.detach(self.muscle.max_iso_force / th.mean(self.muscle.max_iso_force))
+    #self.muscle_normalizer = self.detach(self.muscle.max_iso_force / torch.mean(self.muscle.max_iso_force))
     # goal = self.joint2cartesian(self.draw_random_uniform_states(batch_size)).chunk(2, dim=-1)
-    self.goal = th.zeros((batch_size, self.skeleton.space_dim)).to(self.device)
+    self.goal = torch.zeros((batch_size, self.skeleton.space_dim)).to(self.device)
     self.elapsed = 0.
 
     self.effector.reset(options={"batch_size": batch_size, "joint_state": joint_state})
     
     # initialize buffer
-    action = th.zeros((batch_size, self.action_space.shape[0])).to(self.device)
+    action = torch.zeros((batch_size, self.action_space.shape[0])).to(self.device)
     self.obs_buffer["proprioception"] = [self.get_proprioception()] * len(self.obs_buffer["proprioception"])
     self.obs_buffer["vision"] = [self.get_vision()] * len(self.obs_buffer["vision"])
     self.obs_buffer["action"] = [action] * self.action_frame_stacking
@@ -353,7 +353,7 @@ class Environment(gym.Env, th.nn.Module):
   def np_random(self, rng: np.random.Generator) -> None:
       self.effector.np_random = rng
 
-  def apply_noise(self, loc, noise: float | list) -> th.Tensor:
+  def apply_noise(self, loc, noise: float | list) -> torch.Tensor:
     """Applies element-wise Gaussian noise to the input `loc`.
 
     Args:
@@ -371,7 +371,7 @@ class Environment(gym.Env, th.nn.Module):
       white_noise = self.np_random.normal(size=(loc.shape[0], loc.shape[1]), scale=noise)
     else:
       white_noise = self.np_random.normal(size=(loc.shape[0], len(noise[0])), scale=noise)
-    return loc + th.tensor(white_noise, dtype=th.float32).to(self.device)
+    return loc + torch.tensor(white_noise, dtype=torch.float32).to(self.device)
 
   def get_attributes(self):
     """Gets all non-callable attributes declared in the object instance, excluding `gym.spaces.Space` attributes,
@@ -428,12 +428,12 @@ class Environment(gym.Env, th.nn.Module):
     return cfg
   
   def to(self, *args, **kwargs):
-    if args and isinstance(args[0], (str, th.device)):
-      self._device = th.device(args[0])
-    elif args and isinstance(args[0], th.Tensor):
+    if args and isinstance(args[0], (str, torch.device)):
+      self._device = torch.device(args[0])
+    elif args and isinstance(args[0], torch.Tensor):
       self._device = args[0].device
     elif 'device' in kwargs:
-      self._device = th.device(kwargs['device'])
+      self._device = torch.device(kwargs['device'])
     return super().to(*args, **kwargs)
 
   @property
@@ -467,7 +467,7 @@ class RandomTargetReach(Environment):
 
     options = {} if options is None else options
     batch_size: int = options.get('batch_size', 1)
-    joint_state: th.Tensor | np.ndarray | None = options.get('joint_state', None)
+    joint_state: torch.Tensor | np.ndarray | None = options.get('joint_state', None)
     deterministic: bool = options.get('deterministic', False)
     
     if joint_state is not None:
@@ -482,7 +482,7 @@ class RandomTargetReach(Environment):
     self.goal = self.joint2cartesian(self.effector.draw_random_uniform_states(batch_size)).chunk(2, dim=-1)[0]
     self.elapsed = 0.
 
-    action = th.zeros((batch_size, self.action_space.shape[0])).to(self.device)
+    action = torch.zeros((batch_size, self.action_space.shape[0])).to(self.device)
 
     self.obs_buffer["proprioception"] = [self.get_proprioception()] * len(self.obs_buffer["proprioception"])
     self.obs_buffer["vision"] = [self.get_vision()] * len(self.obs_buffer["vision"])

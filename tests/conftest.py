@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-import torch as th
+import torch
 
 from motornet.muscle import (
     CompliantTendonHillMuscle,
@@ -143,4 +143,4 @@ def make_geometry_state(batch_size, musculotendon_len, n_muscles, dof=2, vel=0.0
     lens = np.broadcast_to(np.array(musculotendon_len, dtype=np.float32), (batch_size, 1, n_muscles))
     vels = np.full((batch_size, 1, n_muscles), vel, dtype=np.float32)
     moments = np.zeros((batch_size, dof, n_muscles), dtype=np.float32)
-    return th.tensor(np.concatenate([lens, vels, moments], axis=1))
+    return torch.tensor(np.concatenate([lens, vels, moments], axis=1))

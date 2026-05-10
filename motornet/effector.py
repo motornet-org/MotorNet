@@ -1,4 +1,4 @@
-import torch as th
+import torch
 import numpy as np
 from typing import Union, Any
 from gymnasium.utils import seeding
@@ -6,7 +6,7 @@ from motornet.skeleton import TwoDofArm, PointMass
 from motornet.muscle import CompliantTendonHillMuscle, ReluMuscle
 
 
-class Effector(th.nn.Module):
+class Effector(torch.nn.Module):
   """Base class for `Effector` objects.
 
   Args:
@@ -54,9 +54,9 @@ class Effector(th.nn.Module):
     
     super().__init__()
 
-    self._device = th.device('cpu')
+    self._device = torch.device('cpu')
     self.__name__ = name
-    self.register_buffer('damping', th.tensor(damping, dtype=th.float32))
+    self.register_buffer('damping', torch.tensor(damping, dtype=torch.float32))
     self.skeleton = skeleton.to(self.device)
     self.dof = self.skeleton.dof
     self.space_dim = self.skeleton.space_dim
@@ -77,13 +77,13 @@ class Effector(th.nn.Module):
     vel_upper_bound = self.skeleton.vel_upper_bound if vel_upper_bound is None else vel_upper_bound
     pos_bounds = self._set_state_limit_bounds(lb=pos_lower_bound, ub=pos_upper_bound)
     vel_bounds = self._set_state_limit_bounds(lb=vel_lower_bound, ub=vel_upper_bound)
-    pos_range = th.tensor(pos_bounds[:, 0] - pos_bounds[:, 1], dtype=th.float32)
-    vel_range = th.tensor(vel_bounds[:, 0] - vel_bounds[:, 1], dtype=th.float32)
+    pos_range = torch.tensor(pos_bounds[:, 0] - pos_bounds[:, 1], dtype=torch.float32)
+    vel_range = torch.tensor(vel_bounds[:, 0] - vel_bounds[:, 1], dtype=torch.float32)
     
-    self.register_buffer('pos_upper_bound', th.tensor(pos_bounds[:, 1], dtype=th.float32))
-    self.register_buffer('pos_lower_bound', th.tensor(pos_bounds[:, 0], dtype=th.float32))
-    self.register_buffer('vel_upper_bound', th.tensor(vel_bounds[:, 1], dtype=th.float32))
-    self.register_buffer('vel_lower_bound', th.tensor(vel_bounds[:, 0], dtype=th.float32))
+    self.register_buffer('pos_upper_bound', torch.tensor(pos_bounds[:, 1], dtype=torch.float32))
+    self.register_buffer('pos_lower_bound', torch.tensor(pos_bounds[:, 0], dtype=torch.float32))
+    self.register_buffer('vel_upper_bound', torch.tensor(vel_bounds[:, 1], dtype=torch.float32))
+    self.register_buffer('vel_lower_bound', torch.tensor(vel_bounds[:, 0], dtype=torch.float32))
     self.register_buffer('pos_range_bound', pos_range)
     self.register_buffer('vel_range_bound', vel_range)
 
@@ -128,8 +128,8 @@ class Effector(th.nn.Module):
     self.section_splits = None
     self._muscle_config_is_empty = True
 
-    self.register_buffer('default_endpoint_load', th.zeros((1, self.skeleton.space_dim)))
-    self.register_buffer('default_joint_load', th.zeros((1, self.skeleton.dof)))
+    self.register_buffer('default_endpoint_load', torch.zeros((1, self.skeleton.space_dim)))
+    self.register_buffer('default_joint_load', torch.zeros((1, self.skeleton.dof)))
     
     if self.integration_method == 'euler':
       self._integrate = self._euler
@@ -144,7 +144,7 @@ class Effector(th.nn.Module):
     endpoint_load = kwargs.get('endpoint_load', self.default_endpoint_load)
     joint_load = kwargs.get('joint_load', self.default_joint_load)
 
-    action = action if th.is_tensor(action) else th.tensor(action, dtype=th.float32)
+    action = action if torch.is_tensor(action) else torch.tensor(action, dtype=torch.float32)
     a = self.muscle.clip_activation(action)
     
     for _ in range(self.n_ministeps):
@@ -174,7 +174,7 @@ class Effector(th.nn.Module):
 
     options = {} if options is None else options
     batch_size: int = options.get('batch_size', 1)
-    joint_state: th.Tensor | np.ndarray | None = options.get('joint_state', None)
+    joint_state: torch.Tensor | np.ndarray | None = options.get('joint_state', None)
 
     if joint_state is not None:
       joint_state_shape = np.shape(joint_state.cpu().detach().numpy())
@@ -204,12 +204,12 @@ class Effector(th.nn.Module):
     self._np_random = rng
 
   def to(self, *args, **kwargs):
-    if args and isinstance(args[0], (str, th.device)):
-      self._device = th.device(args[0])
-    elif args and isinstance(args[0], th.Tensor):
+    if args and isinstance(args[0], (str, torch.device)):
+      self._device = torch.device(args[0])
+    elif args and isinstance(args[0], torch.Tensor):
       self._device = args[0].device
     elif 'device' in kwargs:
-      self._device = th.device(kwargs['device'])
+      self._device = torch.device(kwargs['device'])
     return super().to(*args, **kwargs)
 
   @property
@@ -257,11 +257,11 @@ class Effector(th.nn.Module):
     n_total_points = np.array([len(self._muscle_index)])
     self._row_splits = np.concatenate([np.zeros(1), np.diff(self._muscle_index).nonzero()[0] + 1, n_total_points-1])
 
-    self.register_buffer('path_fixation_body', th.tensor(self._path_fixation_body, dtype=th.float32))
-    self.register_buffer('path_coordinates', th.tensor(self._path_coordinates, dtype=th.float32))
-    self.register_buffer('muscle_index', th.tensor(self._muscle_index, dtype=th.float32))
-    self.register_buffer('muscle_transitions', th.tensor(self._muscle_transitions, dtype=th.bool))
-    self.register_buffer('row_splits', th.tensor(self._row_splits, dtype=th.float32))
+    self.register_buffer('path_fixation_body', torch.tensor(self._path_fixation_body, dtype=torch.float32))
+    self.register_buffer('path_coordinates', torch.tensor(self._path_coordinates, dtype=torch.float32))
+    self.register_buffer('muscle_index', torch.tensor(self._muscle_index, dtype=torch.float32))
+    self.register_buffer('muscle_transitions', torch.tensor(self._muscle_transitions, dtype=torch.bool))
+    self.register_buffer('row_splits', torch.tensor(self._row_splits, dtype=torch.float32))
     self.section_splits = np.diff(self._row_splits).astype(int).tolist()
 
     # kwargs loop
@@ -351,20 +351,20 @@ class Effector(th.nn.Module):
     # length, velocity and moment of each path segment
     # -----------------------
     # segment length is just the euclidian distance between the two points
-    segment_len = th.sqrt(th.sum(diff_pos ** 2, dim=1, keepdims=True))
+    segment_len = torch.sqrt(torch.sum(diff_pos ** 2, dim=1, keepdims=True))
     # segment velocity is trickier: we are not after radial velocity but relative velocity.
-    # https://math.stackexchange.com/questions/1481701/time-derivative-of-the-distance-between-2-points-moving-over-time
+    # https://matorch.stackexchange.com/questions/1481701/time-derivative-of-the-distance-between-2-points-moving-over-time
     # Formally, if segment_len=0 then segment_vel is not defined. We could substitute with 0 here because a
     # muscle segment will never flip backward, so the velocity can only be positive afterwards anyway.
     # segment_vel = tf.where(segment_len == 0, tf.zeros(1), segment_vel)
-    segment_vel = th.sum(diff_pos * diff_vel / segment_len, axis=1, keepdims=True)
+    segment_vel = torch.sum(diff_pos * diff_vel / segment_len, axis=1, keepdims=True)
     # for moment arm calculation, see Sherman, Seth, Delp (2013) -- DOI:10.1115/DETC2013-13633
-    segment_moments = th.sum(diff_ddof * diff_pos[:, :, None], axis=1) / segment_len
+    segment_moments = torch.sum(diff_ddof * diff_pos[:, :, None], axis=1) / segment_len
 
     # remove differences between points that don't belong to the same muscle
-    segment_len_cleaned = th.where(self.muscle_transitions, 0., segment_len)
-    segment_vel_cleaned = th.where(self.muscle_transitions, 0., segment_vel)
-    segment_mom_cleaned = th.where(self.muscle_transitions, 0., segment_moments)
+    segment_len_cleaned = torch.where(self.muscle_transitions, 0., segment_len)
+    segment_vel_cleaned = torch.where(self.muscle_transitions, 0., segment_vel)
+    segment_mom_cleaned = torch.where(self.muscle_transitions, 0., segment_moments)
 
     # sum up the contribution of all the segments belonging to a given muscle, looping over all the muscles
     # NOTE: using a loop is not ideal here, and ideally this should move toward using nested tensors, which can 
@@ -375,17 +375,17 @@ class Effector(th.nn.Module):
     # NOTE 2: It seems for-loops are faster than tensorflow's ragged tensor approach, even for a large number of 
     # muscles. If this is also true for PyTorch's final implementation of a nested tensor then maybe we will want to
     # stick with the current approach.
-    musculotendon_len_as_list = [th.sum(y, dim=-1) for y in segment_len_cleaned.split(self.section_splits, dim=-1)]
-    musculotendon_vel_as_list = [th.sum(y, dim=-1) for y in segment_vel_cleaned.split(self.section_splits, dim=-1)]
-    moment_arms_as_list = [th.sum(y, dim=-1) for y in segment_mom_cleaned.split(self.section_splits, dim=-1)]
+    musculotendon_len_as_list = [torch.sum(y, dim=-1) for y in segment_len_cleaned.split(self.section_splits, dim=-1)]
+    musculotendon_vel_as_list = [torch.sum(y, dim=-1) for y in segment_vel_cleaned.split(self.section_splits, dim=-1)]
+    moment_arms_as_list = [torch.sum(y, dim=-1) for y in segment_mom_cleaned.split(self.section_splits, dim=-1)]
 
     # bring back into a single tensor
-    musculotendon_len = th.stack(musculotendon_len_as_list, dim=-1)
-    musculotendon_vel = th.stack(musculotendon_vel_as_list, dim=-1)
-    moment_arms = th.stack(moment_arms_as_list, dim=-1)
+    musculotendon_len = torch.stack(musculotendon_len_as_list, dim=-1)
+    musculotendon_vel = torch.stack(musculotendon_vel_as_list, dim=-1)
+    moment_arms = torch.stack(moment_arms_as_list, dim=-1)
 
     # pack all this into one state array and flip the dimensions back (batch_size * n_features * n_muscles)
-    geometry_state = th.concat([musculotendon_len, musculotendon_vel, moment_arms], dim=1)
+    geometry_state = torch.concat([musculotendon_len, musculotendon_vel, moment_arms], dim=1)
     return geometry_state
   
   def _set_state(self, states):
@@ -471,7 +471,7 @@ class Effector(th.nn.Module):
     forces = states["muscle"][:, self.force_index:self.force_index+1, :]
     joint_vel = states["joint"].chunk(2, dim=-1)[-1]
 
-    generalized_forces = - th.sum(forces * moments, dim=-1) + joint_load - self.damping * joint_vel
+    generalized_forces = - torch.sum(forces * moments, dim=-1) + joint_load - self.damping * joint_vel
     
     state_derivative = {
       "muscle": self.muscle.ode(action, states["muscle"]),
@@ -490,10 +490,10 @@ class Effector(th.nn.Module):
       A `tensor` containing `batch_size` joint states.
     """
     sz = (batch_size, self.dof)
-    rnd = th.tensor(self.np_random.uniform(size=sz), dtype=th.float32).to(self.device)
+    rnd = torch.tensor(self.np_random.uniform(size=sz), dtype=torch.float32).to(self.device)
     pos = self.pos_range_bound * rnd + self.skeleton.pos_upper_bound
-    vel = th.zeros(sz).to(self.device)
-    return th.cat([pos, vel], dim=1)
+    vel = torch.zeros(sz).to(self.device)
+    return torch.cat([pos, vel], dim=1)
 
   def _parse_initial_joint_state(self, joint_state, batch_size):
     if joint_state is None:
@@ -527,8 +527,8 @@ class Effector(th.nn.Module):
     if velocity is None:
       velocity = np.zeros_like(position)
     # in case input is a list, a numpy array or a tensor
-    pos = position.cpu().detach().numpy() if th.is_tensor(position) else np.array(position)
-    vel = velocity.cpu().detach().numpy() if th.is_tensor(velocity) else np.array(velocity)
+    pos = position.cpu().detach().numpy() if torch.is_tensor(position) else np.array(position)
+    vel = velocity.cpu().detach().numpy() if torch.is_tensor(velocity) else np.array(velocity)
     if len(pos.shape) == 1:
         pos = pos.reshape((1, -1))
     if len(vel.shape) == 1:
@@ -542,9 +542,9 @@ class Effector(th.nn.Module):
     assert np.all(vel >= self.vel_lower_bound.cpu().numpy())
     assert np.all(vel <= self.vel_upper_bound.cpu().numpy())
 
-    vel = th.tensor(vel, dtype=th.float32).to(self.device)
-    pos = th.tensor(pos, dtype=th.float32).to(self.device)
-    states = th.cat([pos, vel], dim=1)
+    vel = torch.tensor(vel, dtype=torch.float32).to(self.device)
+    pos = torch.tensor(pos, dtype=torch.float32).to(self.device)
+    states = torch.cat([pos, vel], dim=1)
     return states.repeat(batch_size, 1)
 
   def _set_state_limit_bounds(self, lb, ub):
@@ -575,7 +575,7 @@ class Effector(th.nn.Module):
             'muscle_wrapping_cfg': self.get_muscle_cfg()}
     return cfg
 
-  def joint2cartesian(self, joint_state: th.Tensor) -> th.Tensor:
+  def joint2cartesian(self, joint_state: torch.Tensor) -> torch.Tensor:
     """Computes the cartesian state given the joint state.
 
     Args:
@@ -725,18 +725,18 @@ class RigidTendonArm26(Effector):
     a1 = [-.03, .03, 0, 0, -.03, .03, 0, 0, -.014, .025, -.016, .03]
     a2 = [0, 0, 0, 0, 0, 0, 0, 0, -4e-3, -2.2e-3, -5.7e-3, -3.2e-3]
     a3 = [np.pi / 2, 0.]
-    self.register_buffer('a0', th.tensor(np.array(a0).reshape((1, 1, 6)), dtype=th.float32))
-    self.register_buffer('a1', th.tensor(np.array(a1).reshape((1, 2, 6)), dtype=th.float32))
-    self.register_buffer('a2', th.tensor(np.array(a2).reshape((1, 2, 6)), dtype=th.float32))
-    self.register_buffer('a3', th.tensor(np.array(a3).reshape((1, 2, 1)), dtype=th.float32))
+    self.register_buffer('a0', torch.tensor(np.array(a0).reshape((1, 1, 6)), dtype=torch.float32))
+    self.register_buffer('a1', torch.tensor(np.array(a1).reshape((1, 2, 6)), dtype=torch.float32))
+    self.register_buffer('a2', torch.tensor(np.array(a2).reshape((1, 2, 6)), dtype=torch.float32))
+    self.register_buffer('a3', torch.tensor(np.array(a3).reshape((1, 2, 1)), dtype=torch.float32))
 
   def _get_geometry(self, joint_state):
     old_pos, old_vel = joint_state[:, :, None].chunk(2, dim=1)
     old_pos = old_pos - self.a3
     moment_arm = old_pos * self.a2 * 2 + self.a1
-    musculotendon_len = th.sum((self.a1 + old_pos * self.a2) * old_pos, dim=1, keepdims=True) + self.a0
-    musculotendon_vel = th.sum(old_vel * moment_arm, dim=1, keepdims=True)
-    return th.cat([musculotendon_len, musculotendon_vel, moment_arm], dim=1)
+    musculotendon_len = torch.sum((self.a1 + old_pos * self.a2) * old_pos, dim=1, keepdims=True) + self.a0
+    musculotendon_vel = torch.sum(old_vel * moment_arm, dim=1, keepdims=True)
+    return torch.cat([musculotendon_len, musculotendon_vel, moment_arm], dim=1)
 
 
 class CompliantTendonArm26(RigidTendonArm26):
@@ -778,4 +778,4 @@ class CompliantTendonArm26(RigidTendonArm26):
     # Adjust some parameters to relax overly stiff tendon values.
     # This should greatly help with stability during numerical integration.
     a0 = [0.182, 0.2362, 0.2859, 0.2355, 0.3329, 0.2989]
-    self.register_buffer('a0', th.tensor(np.array(a0).reshape((1, 1, 6)), dtype=th.float32))
+    self.register_buffer('a0', torch.tensor(np.array(a0).reshape((1, 1, 6)), dtype=torch.float32))

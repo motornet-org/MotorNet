@@ -1,4 +1,4 @@
-import torch as th
+import torch
 import torch.nn as nn
 
 
@@ -9,24 +9,24 @@ class PolicyGRU(nn.Module):
     self.hidden_dim = hidden_dim
     self.n_layers = 1
 
-    self.gru = th.nn.GRU(input_dim, hidden_dim, 1, batch_first=True)
-    self.fc = th.nn.Linear(hidden_dim, output_dim)
-    self.sigmoid = th.nn.Sigmoid()
+    self.gru = torch.nn.GRU(input_dim, hidden_dim, 1, batch_first=True)
+    self.fc = torch.nn.Linear(hidden_dim, output_dim)
+    self.sigmoid = torch.nn.Sigmoid()
 
     # the default initialization in torch isn't ideal
     for name, param in self.named_parameters():
       if name == "gru.weight_ih_l0":
-        th.nn.init.xavier_uniform_(param)
+        torch.nn.init.xavier_uniform_(param)
       elif name == "gru.weight_hh_l0":
-        th.nn.init.orthogonal_(param)
+        torch.nn.init.orthogonal_(param)
       elif name == "gru.bias_ih_l0":
-        th.nn.init.zeros_(param)
+        torch.nn.init.zeros_(param)
       elif name == "gru.bias_hh_l0":
-        th.nn.init.zeros_(param)
+        torch.nn.init.zeros_(param)
       elif name == "fc.weight":
-        th.nn.init.xavier_uniform_(param)
+        torch.nn.init.xavier_uniform_(param)
       elif name == "fc.bias":
-        th.nn.init.constant_(param, -5.)
+        torch.nn.init.constant_(param, -5.)
       else:
         raise ValueError
 

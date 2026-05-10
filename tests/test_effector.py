@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-import torch as th
+import torch
 
 from motornet.effector import Effector
 from motornet.muscle import ReluMuscle, RigidTendonHillMuscle
@@ -114,49 +114,49 @@ class TestEffectorBase:
 
     def test_reset_with_explicit_full_joint_state(self):
         eff = make_relu_effector_with_two_muscles()
-        joint = th.tensor([[0.3, -0.2, 0.0, 0.0]])  # pos + vel
+        joint = torch.tensor([[0.3, -0.2, 0.0, 0.0]])  # pos + vel
         eff.reset(options={"joint_state": joint})
         pos = eff.states["joint"][:, :2]
-        assert th.allclose(pos, joint[:, :2], atol=1e-5)
+        assert torch.allclose(pos, joint[:, :2], atol=1e-5)
 
     def test_reset_with_explicit_position_only(self):
         eff = make_relu_effector_with_two_muscles()
-        pos = th.tensor([[0.3, -0.2]])  # position only (no velocity)
+        pos = torch.tensor([[0.3, -0.2]])  # position only (no velocity)
         eff.reset(options={"joint_state": pos})
         stored_pos = eff.states["joint"][:, :2]
-        assert th.allclose(stored_pos, pos, atol=1e-5)
+        assert torch.allclose(stored_pos, pos, atol=1e-5)
 
     def test_reset_batch_size_tiles_state(self):
         eff = make_relu_effector_with_two_muscles()
-        joint = th.tensor([[0.3, -0.2, 0.0, 0.0]])
+        joint = torch.tensor([[0.3, -0.2, 0.0, 0.0]])
         eff.reset(options={"joint_state": joint, "batch_size": 5})
         assert eff.states["joint"].shape[0] == 5
         # All rows should be the same position
-        assert th.allclose(eff.states["joint"][:, :2],
+        assert torch.allclose(eff.states["joint"][:, :2],
                            joint[:, :2].expand(5, -1), atol=1e-5)
 
     def test_step_changes_joint_state(self):
         eff = make_relu_effector_with_two_muscles()
         eff.reset(seed=0)
         state_before = eff.states["joint"].clone()
-        action = th.tensor([[1.0, 0.0]])  # activate right muscle only
+        action = torch.tensor([[1.0, 0.0]])  # activate right muscle only
         # Step 1: activation builds from 0, but force is still 0 (Euler uses prior state).
         # Step 2: force is now non-zero → velocity changes.
         # Step 3: velocity is non-zero → position changes.
         for _ in range(3):
             eff.step(action)
-        assert not th.allclose(eff.states["joint"], state_before)
+        assert not torch.allclose(eff.states["joint"], state_before)
 
     def test_step_no_nan(self):
         eff = make_relu_effector_with_two_muscles()
         eff.reset(seed=0)
-        action = th.ones(1, 2) * 0.5
+        action = torch.ones(1, 2) * 0.5
         for _ in range(50):
             eff.step(action)
         for key, val in eff.states.items():
             if val is not None:
-                assert not th.isnan(val).any(), f"NaN in state '{key}'"
-                assert not th.isinf(val).any(), f"Inf in state '{key}'"
+                assert not torch.isnan(val).any(), f"NaN in state '{key}'"
+                assert not torch.isinf(val).any(), f"Inf in state '{key}'"
 
     def test_draw_fixed_states_position_matches(self):
         eff = make_relu_effector_with_two_muscles()
@@ -171,7 +171,7 @@ class TestEffectorBase:
         pos = np.array([[0.2, -0.1]])
         states = eff.draw_fixed_states(position=pos, batch_size=6)
         assert states.shape[0] == 6
-        assert th.allclose(states[0, :2], states[5, :2])
+        assert torch.allclose(states[0, :2], states[5, :2])
 
     def test_draw_fixed_states_zero_velocity_by_default(self):
         eff = make_relu_effector_with_two_muscles()
@@ -203,10 +203,10 @@ class TestEffectorBase:
     def test_euler_runs_many_steps_without_error(self):
         eff = make_relu_effector_with_two_muscles()
         eff.reset(seed=0)
-        action = th.tensor([[0.8, 0.2]])
+        action = torch.tensor([[0.8, 0.2]])
         for _ in range(100):
             eff.step(action)
-        assert th.isfinite(eff.states["joint"]).all()
+        assert torch.isfinite(eff.states["joint"]).all()
 
     def test_rk4_runs_many_steps_without_error(self):
         eff = Effector(skeleton=PointMass(space_dim=2), muscle=ReluMuscle(),
@@ -216,10 +216,10 @@ class TestEffectorBase:
         eff.add_muscle(path_fixation_body=[0, 1], path_coordinates=[[-2, 0], [0, 0]],
                        name='left', max_isometric_force=100.0)
         eff.reset(seed=0)
-        action = th.tensor([[0.8, 0.2]])
+        action = torch.tensor([[0.8, 0.2]])
         for _ in range(100):
             eff.step(action)
-        assert th.isfinite(eff.states["joint"]).all()
+        assert torch.isfinite(eff.states["joint"]).all()
 
     def test_rk4_and_euler_agree_after_many_steps_small_dt(self):
         # Both methods should produce similar trajectories at small timestep.
@@ -233,40 +233,40 @@ class TestEffectorBase:
                          name='left', max_isometric_force=10.0)
             return e
 
-        joint = th.zeros(1, 4)
+        joint = torch.zeros(1, 4)
         e_euler = make_eff('euler')
         e_rk4 = make_eff('rk4')
         e_euler.reset(options={"joint_state": joint})
         e_rk4.reset(options={"joint_state": joint})
-        action = th.tensor([[0.7, 0.3]])
+        action = torch.tensor([[0.7, 0.3]])
         for _ in range(200):
             e_euler.step(action)
             e_rk4.step(action)
-        assert th.allclose(e_euler.states["joint"], e_rk4.states["joint"], atol=1e-3)
+        assert torch.allclose(e_euler.states["joint"], e_rk4.states["joint"], atol=1e-3)
 
     def test_batch_rows_are_independent(self):
         eff = make_relu_effector_with_two_muscles()
-        joint_a = th.tensor([[0.5, 0.3, 0.0, 0.0]])
-        joint_b = th.tensor([[-0.5, -0.3, 0.0, 0.0]])
-        batch_joint = th.cat([joint_a, joint_b], dim=0)
+        joint_a = torch.tensor([[0.5, 0.3, 0.0, 0.0]])
+        joint_b = torch.tensor([[-0.5, -0.3, 0.0, 0.0]])
+        batch_joint = torch.cat([joint_a, joint_b], dim=0)
 
         eff.reset(options={"joint_state": batch_joint})
-        action = th.tensor([[1.0, 0.0], [0.0, 1.0]])
+        action = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
         eff.step(action)
         pos_a_from_batch = eff.states["joint"][0, :2].clone()
         pos_b_from_batch = eff.states["joint"][1, :2].clone()
 
         # Each batch element should evolve independently
         eff.reset(options={"joint_state": joint_a})
-        eff.step(th.tensor([[1.0, 0.0]]))
+        eff.step(torch.tensor([[1.0, 0.0]]))
         pos_a_single = eff.states["joint"][0, :2]
 
         eff.reset(options={"joint_state": joint_b})
-        eff.step(th.tensor([[0.0, 1.0]]))
+        eff.step(torch.tensor([[0.0, 1.0]]))
         pos_b_single = eff.states["joint"][0, :2]
 
-        assert th.allclose(pos_a_from_batch, pos_a_single, atol=1e-5)
-        assert th.allclose(pos_b_from_batch, pos_b_single, atol=1e-5)
+        assert torch.allclose(pos_a_from_batch, pos_a_single, atol=1e-5)
+        assert torch.allclose(pos_b_from_batch, pos_b_single, atol=1e-5)
 
 
 # =============================================================================
@@ -301,9 +301,9 @@ class TestReluPointMass24:
 
     def test_co_contraction_minimal_net_displacement(self, relu_point_mass):
         """Symmetric co-contraction should produce near-zero net movement."""
-        relu_point_mass.reset(options={"joint_state": th.zeros(1, 4)})
+        relu_point_mass.reset(options={"joint_state": torch.zeros(1, 4)})
         pos_before = relu_point_mass.states["joint"][:, :2].clone()
-        action = th.ones(1, 4)  # all muscles equally activated
+        action = torch.ones(1, 4)  # all muscles equally activated
         for _ in range(50):
             relu_point_mass.step(action)
         pos_after = relu_point_mass.states["joint"][:, :2]
@@ -311,16 +311,16 @@ class TestReluPointMass24:
         assert displacement < 0.05  # symmetric system → minimal drift
 
     def test_asymmetric_activation_produces_movement(self, relu_point_mass):
-        relu_point_mass.reset(options={"joint_state": th.zeros(1, 4)})
-        action = th.tensor([[1.0, 0.0, 1.0, 0.0]])  # UpperRight + LowerRight active
+        relu_point_mass.reset(options={"joint_state": torch.zeros(1, 4)})
+        action = torch.tensor([[1.0, 0.0, 1.0, 0.0]])  # UpperRight + LowerRight active
         for _ in range(100):
             relu_point_mass.step(action)
         x = relu_point_mass.states["joint"][0, 0].item()
         assert x > 0.0  # should drift rightward
 
     def test_upward_activation_moves_point_mass_up(self, relu_point_mass):
-        relu_point_mass.reset(options={"joint_state": th.zeros(1, 4)})
-        action = th.tensor([[1.0, 1.0, 0.0, 0.0]])  # UpperRight + UpperLeft
+        relu_point_mass.reset(options={"joint_state": torch.zeros(1, 4)})
+        action = torch.tensor([[1.0, 1.0, 0.0, 0.0]])  # UpperRight + UpperLeft
         for _ in range(100):
             relu_point_mass.step(action)
         y = relu_point_mass.states["joint"][0, 1].item()
@@ -367,19 +367,19 @@ class TestRigidTendonArm26:
 
     def test_no_nan_after_passive_simulation(self, thelen_arm26):
         thelen_arm26.reset(seed=0)
-        action = th.zeros(1, 6)
+        action = torch.zeros(1, 6)
         for _ in range(100):
             thelen_arm26.step(action)
         for key, val in thelen_arm26.states.items():
             if val is not None:
-                assert not th.isnan(val).any(), f"NaN in state '{key}'"
+                assert not torch.isnan(val).any(), f"NaN in state '{key}'"
 
     def test_geometry_polynomial_moment_arms_finite(self, thelen_arm26):
         thelen_arm26.reset(options={"batch_size": 5})
         geom = thelen_arm26.states["geometry"]
         # moment arms are in slots [2:] of the geometry state
         moment_arms = geom[:, 2:, :]
-        assert th.isfinite(moment_arms).all()
+        assert torch.isfinite(moment_arms).all()
 
     def test_musculotendon_lengths_positive(self, thelen_arm26):
         thelen_arm26.reset(options={"batch_size": 5})
@@ -421,12 +421,12 @@ class TestCompliantTendonArm26:
 
     def test_no_nan_after_short_simulation(self, compliant_arm26):
         compliant_arm26.reset(seed=0)
-        action = th.ones(1, 6) * 0.1
+        action = torch.ones(1, 6) * 0.1
         for _ in range(50):
             compliant_arm26.step(action)
         for key, val in compliant_arm26.states.items():
             if val is not None:
-                assert not th.isnan(val).any(), f"NaN in state '{key}'"
+                assert not torch.isnan(val).any(), f"NaN in state '{key}'"
 
     def test_timestep_is_small(self, compliant_arm26):
         # CompliantTendonArm26 uses a small dt by default (0.0002) for numerical stability
