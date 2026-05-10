@@ -19,8 +19,7 @@ We are currently in beta phase, meaning the toolbox is publicly available but we
 bugs and fixes to apply. Please feel free to log an issue if you think you found a bug, we appreciate any contribution. 
 Stay tuned for more!
 
-An [online documentation](https://motornet.org) is available. Feel free to 
-check it out.
+An [online documentation](https://motornet.org) is available. Feel free to check it out.
 
 ## How to Install
 
@@ -92,6 +91,29 @@ of how the  API is supposed to work.
 
 Tutorials and API documentation for version 0.1.5 are still available on the website and GitHib repository for those
 who wish to consult them. They will remain available for the foreseeable future.
+
+## Citation
+
+If you use MotorNet in your research, please cite the following paper:
+
+> Codol O, Michaels JA, Kashefi M, Pruszynski JA, Gribble PL (2023). MotorNet: a Python toolbox for controlling differentiable biomechanical effectors with artificial neural networks. *eLife* 12:RP88591. https://doi.org/10.7554/eLife.88591.3
+
+BibTeX:
+
+```bibtex
+@article{Codol_2024,
+  title     = {MotorNet: a Python toolbox for controlling differentiable biomechanical effectors with artificial neural networks},
+  author    = {Codol, Olivier and Michaels, Jonathan A and Kashefi, Mehrdad and Pruszynski, J Andrew and Gribble, Paul L},
+  journal   = {eLife},
+  volume    = {12},
+  pages     = {RP88591},
+  year      = {2024},
+  month     = {July},
+  publisher = {eLife Sciences Publications, Ltd},
+  doi       = {10.7554/eLife.88591.3},
+  url       = {https://doi.org/10.7554/eLife.88591.3}
+}
+```
 
 ## Changelog
 
