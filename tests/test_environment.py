@@ -333,3 +333,151 @@ class TestRandomTargetReach:
             assert not torch.isnan(obs).any(), "NaN in observation during episode"
             if terminated:
                 break
+
+
+# =============================================================================
+# Non-differentiable (RL) mode
+# =============================================================================
+
+class TestNonDifferentiable:
+
+    @pytest.fixture
+    def rl_env(self):
+        """Environment in non-differentiable mode — the standard RL setup."""
+        return Environment(effector=ReluPointMass24(), differentiable=False)
+
+    # --- reset ---
+
+    def test_reset_obs_is_numpy(self, rl_env):
+        obs, _ = rl_env.reset(options={"deterministic": True})
+        assert isinstance(obs, np.ndarray)
+
+    def test_reset_action_in_info_is_numpy(self, rl_env):
+        _, info = rl_env.reset(options={"deterministic": True})
+        assert isinstance(info["action"], np.ndarray)
+
+    def test_reset_goal_in_info_is_numpy(self, rl_env):
+        _, info = rl_env.reset(options={"deterministic": True})
+        assert isinstance(info["goal"], np.ndarray)
+
+    def test_reset_states_in_info_are_numpy(self, rl_env):
+        _, info = rl_env.reset(options={"deterministic": True})
+        for key, val in info["states"].items():
+            if val is not None:
+                assert isinstance(val, np.ndarray), f"states['{key}'] is not numpy"
+
+    # --- step outputs ---
+
+    def test_step_obs_is_numpy(self, rl_env):
+        rl_env.reset(options={"deterministic": True})
+        obs, _, _, _, _ = rl_env.step(np.zeros((1, rl_env.n_muscles), dtype=np.float32))
+        assert isinstance(obs, np.ndarray)
+
+    def test_reward_is_numpy_zeros(self, rl_env):
+        rl_env.reset(options={"deterministic": True})
+        _, reward, _, _, _ = rl_env.step(np.zeros((1, rl_env.n_muscles), dtype=np.float32))
+        assert isinstance(reward, np.ndarray)
+        assert reward.item() == pytest.approx(0.0)
+
+    def test_reward_shape_is_batch_by_one(self, rl_env):
+        rl_env.reset(options={"batch_size": 4, "deterministic": True})
+        action = np.zeros((4, rl_env.n_muscles), dtype=np.float32)
+        _, reward, _, _, _ = rl_env.step(action)
+        assert reward.shape == (4, 1)
+
+    def test_reward_is_none_in_differentiable_mode(self, base_env):
+        base_env.reset(options={"deterministic": True})
+        _, reward, _, _, _ = base_env.step(torch.zeros(1, base_env.n_muscles))
+        assert reward is None
+
+    def test_step_states_in_info_are_numpy(self, rl_env):
+        rl_env.reset(options={"deterministic": True})
+        _, _, _, _, info = rl_env.step(np.zeros((1, rl_env.n_muscles), dtype=np.float32))
+        for key, val in info["states"].items():
+            if val is not None:
+                assert isinstance(val, np.ndarray), f"states['{key}'] is not numpy after step"
+
+    def test_step_goal_in_info_is_numpy(self, rl_env):
+        rl_env.reset(options={"deterministic": True})
+        _, _, _, _, info = rl_env.step(np.zeros((1, rl_env.n_muscles), dtype=np.float32))
+        assert isinstance(info["goal"], np.ndarray)
+
+    # --- action input ---
+
+    def test_numpy_action_accepted_by_step(self, rl_env):
+        rl_env.reset(options={"deterministic": True})
+        action = np.ones((1, rl_env.n_muscles), dtype=np.float32) * 0.5
+        obs, _, _, _, _ = rl_env.step(action)  # must not raise
+        assert obs is not None
+
+    def test_tensor_action_also_accepted_in_non_diff_mode(self, rl_env):
+        rl_env.reset(options={"deterministic": True})
+        action = torch.ones(1, rl_env.n_muscles) * 0.5
+        obs, _, _, _, _ = rl_env.step(action)
+        assert isinstance(obs, np.ndarray)
+
+    # --- episode viability ---
+
+    def test_full_episode_runs_without_error(self):
+        env = Environment(effector=ReluPointMass24(), differentiable=False,
+                          max_ep_duration=0.1)
+        env.reset(seed=0, options={"deterministic": True})
+        action = np.ones((1, env.n_muscles), dtype=np.float32) * 0.3
+        terminated = False
+        steps = 0
+        while not terminated:
+            obs, reward, terminated, _, _ = env.step(action, deterministic=True)
+            steps += 1
+            assert isinstance(obs, np.ndarray)
+            assert isinstance(reward, np.ndarray)
+        assert terminated
+        assert steps == pytest.approx(int(0.1 / env.dt), abs=1)
+
+    def test_multi_episode_cycling(self):
+        """Reset after termination must produce a valid next episode."""
+        env = Environment(effector=ReluPointMass24(), differentiable=False,
+                          max_ep_duration=0.05)
+        action = np.zeros((1, env.n_muscles), dtype=np.float32)
+        for episode in range(3):
+            obs, _ = env.reset(seed=episode, options={"deterministic": True})
+            assert isinstance(obs, np.ndarray)
+            terminated = False
+            while not terminated:
+                obs, _, terminated, _, _ = env.step(action, deterministic=True)
+            assert not np.isnan(obs).any(), f"NaN in obs at end of episode {episode}"
+
+    def test_batched_non_diff_full_episode(self):
+        """Batched RL episode should complete without error and return arrays."""
+        batch = 4
+        env = Environment(effector=ReluPointMass24(), differentiable=False,
+                          max_ep_duration=0.05)
+        env.reset(options={"batch_size": batch, "deterministic": True})
+        action = np.zeros((batch, env.n_muscles), dtype=np.float32)
+        terminated = False
+        while not terminated:
+            obs, reward, terminated, _, info = env.step(action, deterministic=True)
+        assert obs.shape == (batch, env.observation_space.shape[0])
+        assert reward.shape == (batch, 1)
+        assert all(isinstance(v, np.ndarray)
+                   for v in info["states"].values() if v is not None)
+
+    # --- noise in RL mode ---
+
+    def test_action_noise_changes_noisy_action(self):
+        env = Environment(effector=ReluPointMass24(), differentiable=False,
+                          action_noise=1.0)
+        env.reset(seed=0, options={"deterministic": True})
+        action = np.ones((1, env.n_muscles), dtype=np.float32) * 0.5
+        _, _, _, _, info = env.step(action, deterministic=False)
+        # noisy action is a tensor internally; convert for comparison
+        clean = torch.tensor(action)
+        noisy = info["noisy action"]
+        assert not torch.allclose(clean, noisy)
+
+    def test_deterministic_true_suppresses_action_noise(self):
+        env = Environment(effector=ReluPointMass24(), differentiable=False,
+                          action_noise=5.0)
+        env.reset(seed=0, options={"deterministic": True})
+        action = np.ones((1, env.n_muscles), dtype=np.float32) * 0.5
+        _, _, _, _, info = env.step(action, deterministic=True)
+        assert torch.allclose(torch.tensor(action), info["noisy action"])
