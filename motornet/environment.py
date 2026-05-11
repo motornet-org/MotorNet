@@ -109,7 +109,7 @@ class Environment(gym.Env, torch.nn.Module):
     self.seed = None
     self._build_spaces()
 
-  def detach(self, x):
+  def detach(self, x: Any) -> Any:
     return x.cpu().detach().numpy() if torch.is_tensor(x) else x
   
   def _build_spaces(self):
@@ -151,7 +151,7 @@ class Environment(gym.Env, torch.nn.Module):
     vis = self.states["fingertip"]
     return self.apply_noise(vis, self.vision_noise)
 
-  def get_obs(self, action=None, deterministic: bool = False) -> torch.Tensor | np.ndarray:
+  def get_obs(self, action: torch.Tensor | None = None, deterministic: bool = False) -> torch.Tensor | np.ndarray:
     """
     Returns a `(batch_size, n_features)` `tensor` containing the (potientially time-delayed) observations.
     By default, this is the task goal, followed by the output of the :meth:`get_proprioception()` method, 
@@ -180,7 +180,7 @@ class Environment(gym.Env, torch.nn.Module):
       action: torch.Tensor | np.ndarray,
       deterministic: bool = False,
       **kwargs,
-    ) -> tuple[torch.Tensor | np.ndarray, bool, bool, dict[str, Any]]:
+    ) -> tuple[torch.Tensor | np.ndarray, np.ndarray | None, bool, bool, dict[str, Any]]:
     """
     Perform one simulation step. This method is likely to be overwritten by any subclass to implement user-defined 
     computations, such as reward value calculation for reinforcement learning, custom truncation or termination
@@ -229,7 +229,7 @@ class Environment(gym.Env, torch.nn.Module):
 
     return obs, reward, terminated, truncated, info
 
-  def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
+  def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[torch.Tensor | np.ndarray, dict[str, Any]]:
     """
     Initialize the task goal and :attr:`effector` states for a (batch of) simulation episode(s). The :attr:`effector`
     states (joint, cartesian, muscle, geometry) are initialized to be biomechanically compatible with each other.
@@ -302,7 +302,7 @@ class Environment(gym.Env, torch.nn.Module):
   # # # The methods below are those LESS likely to be overwritten by users creating custom tasks
   # # # ========================================================================================
   # # # ========================================================================================
-  def update_obs_buffer(self, action=None):
+  def update_obs_buffer(self, action: torch.Tensor | None = None) -> None:
     self.obs_buffer["proprioception"] = self.obs_buffer["proprioception"][1:] + [self.get_proprioception()]
     self.obs_buffer["vision"] = self.obs_buffer["vision"][1:] + [self.get_vision()]
 
@@ -310,34 +310,34 @@ class Environment(gym.Env, torch.nn.Module):
       self.obs_buffer["action"] = self.obs_buffer["action"][1:] + [action.reshape(-1, self.action_space.shape[0])]
 
   @property
-  def muscle(self):
+  def muscle(self) -> Any:
     """Shortcut to the :class:`motornet.effector.Effector`'s `muscle` attribute."""
     return self.effector.muscle
-  
+
   @property
-  def n_muscles(self):
+  def n_muscles(self) -> int:
     """Shortcut to the :class:`motornet.muscle.Muscle`'s `n_muscles` attribute."""
     return self.effector.muscle.n_muscles
-  
+
   @property
-  def skeleton(self):
+  def skeleton(self) -> Any:
     """Shortcut to the :class:`motornet.effector.Effector`'s `skeleton` attribute."""
     return self.effector.skeleton
-  
+
   @property
-  def space_dim(self):
+  def space_dim(self) -> int:
     """Shortcut to the :class:`motornet.skeleton.Skeleton`'s `space_dim` attribute."""
     return self.effector.skeleton.space_dim
-  
+
   @property
-  def states(self):
+  def states(self) -> dict[str, torch.Tensor | None]:
     """Shortcut to the :class:`motornet.effector.Effector`'s `states` attribute."""
     return self.effector.states
 
   def _maybe_detach_states(self):
     return self.states if self.differentiable else {key: self.detach(val) for key, val in self.states.items()}
   
-  def joint2cartesian(self, joint_states):
+  def joint2cartesian(self, joint_states: torch.Tensor) -> torch.Tensor:
     """Shortcut to :meth:`motornet.effector.Effector.joint2cartesian()` method."""
     return self.effector.joint2cartesian(joint_states)
   
@@ -358,7 +358,7 @@ class Environment(gym.Env, torch.nn.Module):
   def np_random(self, rng: np.random.Generator) -> None:
       self.effector.np_random = rng
 
-  def apply_noise(self, loc, noise: float | list) -> torch.Tensor:
+  def apply_noise(self, loc: torch.Tensor, noise: float | list) -> torch.Tensor:
     """Applies element-wise Gaussian noise to the input `loc`.
 
     Args:
@@ -378,7 +378,7 @@ class Environment(gym.Env, torch.nn.Module):
       white_noise = self.np_random.normal(size=(loc.shape[0], len(noise[0])), scale=noise)
     return loc + torch.tensor(white_noise, dtype=torch.float32).to(self.device)
 
-  def get_attributes(self):
+  def get_attributes(self) -> tuple[list[str], list]:
     """Gets all non-callable attributes declared in the object instance, excluding `gym.spaces.Space` attributes,
     the effector, muscle, and skeleton attributes.
 
@@ -397,7 +397,7 @@ class Environment(gym.Env, torch.nn.Module):
     values = [getattr(self, a) for a in attributes]
     return attributes, values
 
-  def print_attributes(self):
+  def print_attributes(self) -> None:
     """Prints all non-callable attributes declared in the object instance, excluding `gym.spaces.Space` attributes,
       the effector, muscle, and skeleton attributes."""
     attributes = [a for a in dir(self) if not a.startswith('_') and not callable(getattr(self, a))]
@@ -410,7 +410,7 @@ class Environment(gym.Env, torch.nn.Module):
       for elem in blacklist:
         print("\n" + elem + ":\n", getattr(self, elem))
 
-  def get_save_config(self):
+  def get_save_config(self) -> dict:
     """Gets the environment object's configuration as a `dictionary`.
 
     Returns:
@@ -442,7 +442,7 @@ class Environment(gym.Env, torch.nn.Module):
     return super().to(*args, **kwargs)
 
   @property
-  def device(self):
+  def device(self) -> torch.device:
     return self._device
 
 

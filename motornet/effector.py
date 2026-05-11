@@ -140,7 +140,7 @@ class Effector(torch.nn.Module):
     
     self.states = {key: None for key in ["joint", "cartesian", "muscle", "geometry", "fingertip"]}
 
-  def step(self, action, **kwargs):
+  def step(self, action: torch.Tensor | np.ndarray, **kwargs) -> None:
     endpoint_load = kwargs.get('endpoint_load', self.default_endpoint_load)
     joint_load = kwargs.get('joint_load', self.default_joint_load)
 
@@ -150,7 +150,7 @@ class Effector(torch.nn.Module):
     for _ in range(self.n_ministeps):
       self.integrate(a, endpoint_load, joint_load)
 
-  def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None):
+  def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> None:
     """Sets initial states (joint, cartesian, muscle, geometry) that are biomechanically compatible with each other.
 
     Args:
@@ -213,10 +213,10 @@ class Effector(torch.nn.Module):
     return super().to(*args, **kwargs)
 
   @property
-  def device(self):
+  def device(self) -> torch.device:
     return self._device
 
-  def add_muscle(self, path_fixation_body: list, path_coordinates: list, name: str = None, **kwargs):
+  def add_muscle(self, path_fixation_body: list, path_coordinates: list, name: str | None = None, **kwargs) -> None:
     """Adds a muscle to the effector.
 
     Args:
@@ -290,7 +290,7 @@ class Effector(torch.nn.Module):
     self.muscle_name.append(name)
     self._muscle_config_is_empty = False
 
-  def get_muscle_cfg(self):
+  def get_muscle_cfg(self) -> dict:
     """Gets the wrapping configuration of muscles added through the :meth:`add_muscle` method.
 
     Returns:
@@ -317,7 +317,7 @@ class Effector(torch.nn.Module):
       cfg = {"Placeholder Message": "No muscles were added using the `add_muscle` method."}
     return cfg
 
-  def print_muscle_wrappings(self):
+  def print_muscle_wrappings(self) -> None:
     """Prints the wrapping configuration of the muscles added using the :meth:`add_muscle` method in a readable
     format."""
 
@@ -333,7 +333,7 @@ class Effector(torch.nn.Module):
           print(key + ": ", param)
       print("\n")
 
-  def get_geometry(self, joint_state):
+  def get_geometry(self, joint_state: torch.Tensor) -> torch.Tensor:
     """Computes the geometry state from the joint state.
     Geometry state dimensionality is `[n_batch, n_timesteps, n_states, n_muscles]`. By default, there are as many
     states as there are moments (that is, one per degree of freedom in the effector) plus two for musculotendon length
@@ -402,7 +402,7 @@ class Effector(torch.nn.Module):
     self.states["cartesian"] = self.joint2cartesian(joint_state=states["joint"])
     self.states["fingertip"] = self.states["cartesian"].chunk(2, dim=-1)[0]
 
-  def integrate(self, action, endpoint_load, joint_load):
+  def integrate(self, action: torch.Tensor, endpoint_load: torch.Tensor, joint_load: torch.Tensor) -> None:
     """Integrates the effector over one timestep. To do so, it first calls the :meth:`update_ode` method to obtain
     state derivatives from evaluation of the Ordinary Differential Equations. Then it performs the numerical
     integration over one timestep using the :meth:`integration_step` method, and updates the states to the
@@ -435,7 +435,7 @@ class Effector(torch.nn.Module):
     states = self.integration_step(self.minidt, state_derivative=k, states=states0)
     self._set_state(states)
 
-  def integration_step(self, dt, state_derivative, states):
+  def integration_step(self, dt: float, state_derivative: dict[str, torch.Tensor], states: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     """Performs one numerical integration step for the :class:`motornet.muscle.Muscle` object class or
     subclass, and then for the :class:`motornet.skeleton.Skeleton` object class or subclass.
 
@@ -457,7 +457,7 @@ class Effector(torch.nn.Module):
     new_states["geometry"] = self.get_geometry(new_states["joint"])
     return new_states
 
-  def ode(self, action, states, endpoint_load, joint_load):
+  def ode(self, action: torch.Tensor, states: dict[str, torch.Tensor], endpoint_load: torch.Tensor, joint_load: torch.Tensor) -> dict[str, torch.Tensor]:
     """Computes state derivatives by evaluating the Ordinary Differential Equations of the
     ``motornet.muscle.Muscle`` object class or subclass, and then of the
     :class:`motornet.skeleton.Skeleton` object class or subclass.
@@ -487,7 +487,7 @@ class Effector(torch.nn.Module):
       }
     return state_derivative
 
-  def draw_random_uniform_states(self, batch_size):
+  def draw_random_uniform_states(self, batch_size: int) -> torch.Tensor:
     """Draws joint states according to a random uniform distribution, bounded by the position and velocity boundary
     attributes defined at initialization.
 
@@ -521,7 +521,7 @@ class Effector(torch.nn.Module):
 
     return joint0
 
-  def draw_fixed_states(self, batch_size, position, velocity=None):
+  def draw_fixed_states(self, batch_size: int, position: torch.Tensor | np.ndarray, velocity: torch.Tensor | np.ndarray | None = None) -> torch.Tensor:
     """Creates a joint state `tensor` corresponding to the specified position, tiled `batch_size` times.
 
     Args:
@@ -579,7 +579,7 @@ class Effector(torch.nn.Module):
     bounds = bounds * np.ones((self.dof, 2)).astype(np.float32)  # if one bound pair, broadcast to dof rows
     return bounds
 
-  def get_save_config(self):
+  def get_save_config(self) -> dict:
     """Gets the effector object's configuration as a `dictionary`.
 
     Returns:
@@ -611,7 +611,7 @@ class Effector(torch.nn.Module):
     """
     return self.skeleton.joint2cartesian(joint_state=joint_state)
 
-  def setattr(self, name: str, value):
+  def setattr(self, name: str, value: Any) -> None:
     """Changes the value of an attribute held by this object.
 
     Args:

@@ -32,12 +32,12 @@ class PolicyGRU(nn.Module):
 
     self.to(device)
 
-  def forward(self, x, h0):
+  def forward(self, x: torch.Tensor, h0: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     y, h = self.gru(x[:, None, :], h0)
     u = self.sigmoid(self.fc(y)).squeeze(dim=1)
     return u, h
 
-  def init_hidden(self, batch_size):
+  def init_hidden(self, batch_size: int) -> torch.Tensor:
     weight = next(self.parameters()).data
     hidden = weight.new(self.n_layers, batch_size, self.hidden_dim).zero_().to(self.device)
     return hidden

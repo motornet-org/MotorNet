@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from typing import Union
+from typing import Any, Union
 
 
 class Skeleton(torch.nn.Module):
@@ -67,20 +67,20 @@ class Skeleton(torch.nn.Module):
   def _clip(x, lb, ub):
     return torch.min(torch.max(x, lb), ub)
 
-  def clip_method(self, x):
+  def clip_method(self, x: torch.Tensor) -> torch.Tensor:
     return self.clip(x, self.pos_lower_bound, self.pos_upper_bound)
 
-  def detach(self, x):
+  def detach(self, x: Any) -> Any:
     return x.cpu().detach().numpy() if torch.is_tensor(x) else x
   
   def build(
       self,
       timestep: float,
-      pos_upper_bound,
-      pos_lower_bound,
-      vel_upper_bound,
-      vel_lower_bound,
-      ):
+      pos_upper_bound: float | list | tuple | np.ndarray | torch.Tensor,
+      pos_lower_bound: float | list | tuple | np.ndarray | torch.Tensor,
+      vel_upper_bound: float | list | tuple | np.ndarray | torch.Tensor,
+      vel_lower_bound: float | list | tuple | np.ndarray | torch.Tensor,
+      ) -> None:
     """This method should be called by the initialization method of the 
     :class:`motornet.effector.Effector` object class or subclass.
 
@@ -110,7 +110,7 @@ class Skeleton(torch.nn.Module):
     self.clip_position = self.clip_method
     self.built = True
 
-  def path2cartesian(self, path_coordinates, path_fixation_body, joint_state):
+  def path2cartesian(self, path_coordinates: torch.Tensor, path_fixation_body: torch.Tensor, joint_state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Transforms muscle paths into cartesian paths for each muscle's fixation points, given a joint configuration.
     This method is used by the wrapper :class:`motornet.plants.plants.Plant` object class or subclass to then
     calculate musculotendon complex length and velocity, as well as moment arms. See `[1]` for more details.
@@ -144,7 +144,7 @@ class Skeleton(torch.nn.Module):
   def _path2cartesian(self, path_coordinates, path_fixation_body, joint_state):
     raise NotImplementedError
   
-  def integrate(self, dt: float, state_derivative, joint_state):
+  def integrate(self, dt: float, state_derivative: torch.Tensor, joint_state: torch.Tensor) -> torch.Tensor:
     """Performs one integration step. This method is usually called by the
     :meth:`motornet.effector.Effector.integration_step` uring numerical integration by the
     :class:`motornet.effector.Effector` wrapper class or subclass.
@@ -165,7 +165,7 @@ class Skeleton(torch.nn.Module):
   def _integrate(self, dt, state_derivative, joint_state):
     raise NotImplementedError
 
-  def joint2cartesian(self, joint_state):
+  def joint2cartesian(self, joint_state: torch.Tensor) -> torch.Tensor:
     """Computes the cartesian state given the joint state.
 
     Args:
@@ -179,7 +179,7 @@ class Skeleton(torch.nn.Module):
   def _joint2cartesian(self, joint_state):
     raise NotImplementedError
 
-  def ode(self, inputs, joint_state, endpoint_load):
+  def ode(self, inputs: torch.Tensor, joint_state: torch.Tensor, endpoint_load: torch.Tensor) -> torch.Tensor:
     """Evaluates the Ordinary Differential Equation (ODE) function.
 
     Args:
@@ -196,7 +196,7 @@ class Skeleton(torch.nn.Module):
   def _ode(self, inputs, joint_state, endpoint_load):
     raise NotImplementedError
 
-  def clip_velocity(self, pos, vel):
+  def clip_velocity(self, pos: torch.Tensor, vel: torch.Tensor) -> torch.Tensor:
     """Clips the joint velocities input based on the velocity boundaries as well as the joint positions.
     Specifically, if a velocity is past the boundary values, it is set to the boundary value exactly. Then, if
     the position is past or equal to the position boundary, and the clipped velocity would result in moving further
@@ -214,7 +214,7 @@ class Skeleton(torch.nn.Module):
     vel = torch.where(torch.logical_and(vel > 0, pos >= self.pos_upper_bound), 0., vel)
     return vel
 
-  def get_base_config(self):
+  def get_base_config(self) -> dict:
     """Get the object instance's base configuration. This is the set of configuration entries that will be useful
     for any :class:`Skeleton` class or subclass. This method should be called by the :meth:`get_save_config`
     method. Users wanting to save additional configuration entries specific to a :class:`Skeleton` subclass should
@@ -226,7 +226,7 @@ class Skeleton(torch.nn.Module):
     cfg = {'dof': self.dof, 'dt': str(self.dt), 'space_dim': self.space_dim}
     return cfg
 
-  def get_save_config(self):
+  def get_save_config(self) -> dict:
     """Get the skeleton object's configuration as a `dictionary`. This method should be overwritten by subclass
     objects, and used to add configuration entries specific to that subclass, on top of the output of the
     :meth:`get_base_config` method.
@@ -236,7 +236,7 @@ class Skeleton(torch.nn.Module):
     """
     return self.get_base_config()
   
-  def setattr(self, name: str, value):
+  def setattr(self, name: str, value: Any) -> None:
     """Changes the value of an attribute held by this object.
 
     Args:
@@ -255,7 +255,7 @@ class Skeleton(torch.nn.Module):
     return super().to(*args, **kwargs)
 
   @property
-  def device(self):
+  def device(self) -> torch.device:
     return self._device
 
 
@@ -304,7 +304,7 @@ class PointMass(Skeleton):
   def _joint2cartesian(self, joint_state):
     return joint_state
 
-  def get_save_config(self):
+  def get_save_config(self) -> dict:
     """Gets the base configuration from the :meth:`Skeleton.get_base_config` method, and adds the point mass' mass.
 
     Returns:
@@ -494,7 +494,7 @@ class TwoDofArm(Skeleton):
     xy = torch.cat([dy_da, -dx_da], dim=1) + bone_origin
     return xy, dxy_dt, dxy_da
 
-  def get_save_config(self):
+  def get_save_config(self) -> dict:
     """Gets the base configuration from the :meth:`Skeleton.get_base_config` method, and adds the arm's properties
     to the configuration: each bone length, mass, center of gravity, coriolis forces, and viscosity parameters.
 

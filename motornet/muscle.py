@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from typing import Any
 
 
 class Muscle(torch.nn.Module):
@@ -53,7 +54,7 @@ class Muscle(torch.nn.Module):
     self.register_buffer('l0_pe', None)
     self.built = False
 
-  def clip_activation(self, a):
+  def clip_activation(self, a: torch.Tensor) -> torch.Tensor:
     return torch.clamp(a, self.min_activation, 1.)
   
   def to(self, *args, **kwargs):
@@ -66,10 +67,10 @@ class Muscle(torch.nn.Module):
     return super().to(*args, **kwargs)
 
   @property
-  def device(self):
+  def device(self) -> torch.device:
     return self._device
 
-  def build(self, timestep, max_isometric_force, **kwargs):
+  def build(self, timestep: float, max_isometric_force: float | list, **kwargs) -> None:
     """Build the muscle given parameters from the ``motornet.effector.Effector`` wrapper object. This should be 
     called by the :meth:`motornet.effector.Effector.add_muscle` method to build the muscle scructure according to 
     the parameters of that effector.
@@ -92,7 +93,7 @@ class Muscle(torch.nn.Module):
     self.register_buffer('l0_pe', torch.ones((1, 1, self.n_muscles)))
     self.built = True
 
-  def get_initial_muscle_state(self, batch_size, geometry_state):
+  def get_initial_muscle_state(self, batch_size: int, geometry_state: torch.Tensor) -> torch.Tensor:
     """Infers the `muscle state` matching a provided `geometry state` array.
 
     Args:
@@ -108,7 +109,7 @@ class Muscle(torch.nn.Module):
   def _get_initial_muscle_state(self, batch_size, geometry_state):
     raise NotImplementedError
 
-  def integrate(self, dt, state_derivative, muscle_state, geometry_state):
+  def integrate(self, dt: float, state_derivative: torch.Tensor, muscle_state: torch.Tensor, geometry_state: torch.Tensor) -> torch.Tensor:
     """Performs one integration step for the muscle step.
 
     Args:
@@ -127,7 +128,7 @@ class Muscle(torch.nn.Module):
   def _integrate(self, dt, state_derivative, muscle_state, geometry_state):
     raise NotImplementedError
 
-  def ode(self, action, muscle_state):
+  def ode(self, action: torch.Tensor, muscle_state: torch.Tensor) -> torch.Tensor:
     """Computes the derivatives of `muscle state` using the corresponding Ordinary Differential Equations.
 
     Args:
@@ -144,7 +145,7 @@ class Muscle(torch.nn.Module):
     activation = muscle_state[:, :1, :]
     return self.activation_ode(action, activation)
 
-  def activation_ode(self, action, activation):
+  def activation_ode(self, action: torch.Tensor, activation: torch.Tensor) -> torch.Tensor:
     """Computes the new activation value of the (set of) muscle(s) according to the Ordinary Differential Equation
     shown in equations 1-2 in `[1]`. Note that this is incidentally the same activation function as used for the 
     `muscle` actuators in MuJoCo `[2]`.
@@ -170,7 +171,7 @@ class Muscle(torch.nn.Module):
     tau = torch.where(action > activation, self.tau_activation * tmp, self.tau_deactivation / tmp)
     return (action - activation) / tau
 
-  def setattr(self, name: str, value):
+  def setattr(self, name: str, value: Any) -> None:
     """Changes the value of an attribute held by this object.
 
     Args:
@@ -179,7 +180,7 @@ class Muscle(torch.nn.Module):
     """
     self.__setattr__(name, value)
 
-  def get_save_config(self):
+  def get_save_config(self) -> dict:
     """Gets the object instance's configuration. This is the set of configuration entries that will be useful
     for any muscle objects or subclasses.
 
