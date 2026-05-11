@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from motornet.effector import Effector, Reacher
+from motornet.effector import Effector, FreePointMass24, Reacher
 from motornet.muscle import ReluMuscle, RigidTendonHillMuscle
 from motornet.skeleton import PointMass
 
@@ -436,6 +436,81 @@ class TestCompliantTendonArm26:
         compliant_arm26.reset(options={"batch_size": 2})
         muscle_lengths = compliant_arm26.states["muscle"][:, 1, :]
         assert (muscle_lengths > 0).all()
+
+
+# =============================================================================
+# FreePointMass24
+# =============================================================================
+
+class TestFreePointMass24:
+
+    def test_has_4_muscles_after_init(self, free_point_mass):
+        assert free_point_mass.n_muscles == 4
+
+    def test_muscle_names(self, free_point_mass):
+        assert free_point_mass.muscle_name == ['r', 'u', 'l', 'd']
+
+    def test_input_dim_equals_n_muscles(self, free_point_mass):
+        assert free_point_mass.input_dim == 4
+
+    def test_joint_state_shape_after_reset(self, free_point_mass):
+        free_point_mass.reset(options={"batch_size": 3})
+        # PointMass dof=2 → joint = (batch, 4) = pos(2) + vel(2)
+        assert free_point_mass.states["joint"].shape == (3, 4)
+
+    def test_muscle_state_shape_after_reset(self, free_point_mass):
+        free_point_mass.reset(options={"batch_size": 3})
+        # ReluMuscle state_dim == 4; FreePointMass24 has 4 muscles
+        assert free_point_mass.states["muscle"].shape == (3, 4, 4)
+
+    def test_geometry_state_shape_after_reset(self, free_point_mass):
+        free_point_mass.reset(options={"batch_size": 3})
+        # (batch, 2+dof=4, n_muscles=4)
+        assert free_point_mass.states["geometry"].shape == (3, 4, 4)
+
+    def test_fingertip_shape_after_reset(self, free_point_mass):
+        free_point_mass.reset(options={"batch_size": 3})
+        assert free_point_mass.states["fingertip"].shape == (3, 2)
+
+    def test_musculotendon_lengths_are_zero(self, free_point_mass):
+        free_point_mass.reset(options={"batch_size": 2})
+        assert torch.all(free_point_mass.states["geometry"][:, 0, :] == 0.0)
+
+    def test_musculotendon_velocities_are_zero(self, free_point_mass):
+        free_point_mass.reset(options={"batch_size": 2})
+        assert torch.all(free_point_mass.states["geometry"][:, 1, :] == 0.0)
+
+    def test_moment_arms_match_a0(self, free_point_mass):
+        free_point_mass.reset(options={"batch_size": 5})
+        moment_arms = free_point_mass.states["geometry"][:, 2:, :]  # (5, 2, 4)
+        expected = np.array([-1., 0., 1., 0., 0., -1., 0., 1.],
+                             dtype=np.float32).reshape(2, 4)
+        expected_t = torch.tensor(expected).unsqueeze(0).expand(5, -1, -1)
+        assert torch.allclose(moment_arms, expected_t)
+
+    def test_geometry_is_constant_across_joint_states(self, free_point_mass):
+        pos_a = torch.zeros(1, 4)
+        pos_b = torch.tensor([[0.3, -0.2, 0.0, 0.0]])
+        free_point_mass.reset(options={"joint_state": pos_a})
+        geom_a = free_point_mass.states["geometry"].clone()
+        free_point_mass.reset(options={"joint_state": pos_b})
+        geom_b = free_point_mass.states["geometry"].clone()
+        assert torch.allclose(geom_a, geom_b)
+
+    def test_default_workspace_bounds(self, free_point_mass):
+        lb = free_point_mass.skeleton.pos_lower_bound.flatten().tolist()
+        ub = free_point_mass.skeleton.pos_upper_bound.flatten().tolist()
+        assert lb == pytest.approx([-0.6, -0.6])
+        assert ub == pytest.approx([0.6, 0.6])
+
+    def test_custom_skeleton_mass_is_respected(self):
+        from motornet.skeleton import PointMass
+        r = FreePointMass24(muscle=ReluMuscle(), skeleton=PointMass(space_dim=2, mass=3.25))
+        assert r.skeleton.mass == pytest.approx(3.25)
+
+    def test_default_max_isometric_force_is_1000(self):
+        r = FreePointMass24(muscle=ReluMuscle())
+        assert r.tobuild__muscle["max_isometric_force"] == [[1000] * 4]
 
 
 # =============================================================================

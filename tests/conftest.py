@@ -12,6 +12,7 @@ from motornet.muscle import (
 from motornet.skeleton import PointMass
 from motornet.effector import (
     CompliantTendonArm26,
+    FreePointMass24,
     Reacher,
     ReluPointMass24,
     RigidTendonArm26,
@@ -94,6 +95,12 @@ def built_compliant_muscle():
 # ---------------------------------------------------------------------------
 # Effector fixtures
 # ---------------------------------------------------------------------------
+
+@pytest.fixture
+def free_point_mass():
+    """FreePointMass24 with ReluMuscle — four cardinal-direction actuators on a 2D PointMass."""
+    return FreePointMass24(muscle=ReluMuscle())
+
 
 @pytest.fixture
 def reacher():

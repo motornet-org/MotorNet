@@ -694,6 +694,77 @@ class ReluPointMass24(Effector):
     self.add_muscle(path_fixation_body=[0, 1], path_coordinates=ll, name='LowerLeft', max_isometric_force=f)
 
 
+class FreePointMass24(Effector):
+  """A four-muscle planar point-mass effector with constant moment arms, compatible with any muscle type.
+
+  Unlike :class:`ReluPointMass24`, this class bypasses path-based geometry and uses a fixed moment arm
+  matrix to drive a :class:`motornet.skeleton.PointMass` in two dimensions. Musculotendon lengths and
+  velocities are set to zero, decoupling the model from force-length/velocity effects.
+
+  The four muscles pull the mass along the cardinal directions of the plane:
+
+  - ``r``: rightward actuator (moment arm: x = -1, y = 0)
+  - ``u``: upward actuator   (moment arm: x = 0,  y = -1)
+  - ``l``: leftward actuator (moment arm: x = +1, y = 0)
+  - ``d``: downward actuator (moment arm: x = 0,  y = +1)
+
+  The sign convention follows the motornet ODE: ``generalized_forces = -forces * moments``, so a
+  negative moment arm produces a positive generalized force (i.e., movement in the positive axis
+  direction).
+
+  If no ``skeleton`` is provided, this object will use a :class:`motornet.skeleton.PointMass` with
+  ``space_dim=2`` and ``mass=1.0``. The default workspace bounds are ``[-0.6, -0.6]`` to
+  ``[0.6, 0.6]`` metres.
+
+  Args:
+    muscle: A :class:`motornet.muscle.Muscle` object class or subclass. Defines the muscle type
+      used for all four muscles.
+    skeleton: A :class:`motornet.skeleton.Skeleton` object class or subclass. Defaults to a 2D
+      :class:`motornet.skeleton.PointMass` with ``mass=1.0`` if not provided.
+    timestep: `Float`, size of a single timestep (in sec).
+    muscle_kwargs: `Dictionary`, muscle parameters passed to the :meth:`motornet.muscle.Muscle.build`
+      method. If ``max_isometric_force`` is not included, it defaults to ``[1000, 1000, 1000, 1000]``.
+    **kwargs: All contents are passed to the parent :class:`Effector` class.
+  """
+
+  def __init__(self, muscle, skeleton=None, timestep=0.01, muscle_kwargs: dict = {}, **kwargs):
+    pos_lower_bound = kwargs.pop('pos_lower_bound', [-0.6, -0.6])
+    pos_upper_bound = kwargs.pop('pos_upper_bound', [0.6, 0.6])
+
+    if skeleton is None:
+      skeleton = PointMass(space_dim=2, mass=1.0)
+
+    super().__init__(
+      skeleton=skeleton,
+      muscle=muscle,
+      timestep=timestep,
+      pos_lower_bound=pos_lower_bound,
+      pos_upper_bound=pos_upper_bound,
+      **kwargs)
+
+    self.muscle_state_dim = self.muscle.state_dim
+    self.geometry_state_dim = 2 + self.skeleton.dof
+    self.n_muscles = 4
+    self.input_dim = self.n_muscles
+    self.muscle_name = ['r', 'u', 'l', 'd']
+
+    if 'max_isometric_force' not in muscle_kwargs:
+      muscle_kwargs = {**muscle_kwargs, 'max_isometric_force': [1000] * 4}
+    self._merge_muscle_kwargs(muscle_kwargs)
+    self.muscle.build(timestep=self.dt, **self.tobuild__muscle)
+
+    # Row 0 (x): r=-1, u=0, l=+1, d=0 — Row 1 (y): r=0, u=-1, l=0, d=+1
+    a0 = np.array([-1., 0., 1., 0., 0., -1., 0., 1.], dtype=np.float32).reshape((1, 2, 4))
+    self.register_buffer('a0', torch.tensor(a0, dtype=torch.float32))
+
+  def _get_geometry(self, joint_state):
+    batch_size = joint_state.shape[0]
+    moment_arm = self.a0.expand(batch_size, -1, -1)
+    musculotendon_len_vel = torch.zeros(
+      batch_size, 2, self.n_muscles, dtype=self.a0.dtype, device=self.a0.device)
+    return torch.cat([musculotendon_len_vel, moment_arm], dim=1)
+
+
 class Reacher(Effector):
   """A simplified four-muscle arm model with constant moment arms, compatible with any muscle type.
 

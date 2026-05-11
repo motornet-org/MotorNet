@@ -9,6 +9,7 @@ import torch
 
 from motornet.effector import (
     Effector,
+    FreePointMass24,
     Reacher,
     ReluPointMass24,
     RigidTendonArm26,
@@ -396,3 +397,82 @@ class TestReacherSimulation:
       r.step(action)
     displacement = (r.states["joint"][:, :2] - init_joint[:, :2]).abs().max().item()
     assert displacement < 0.05
+
+
+# ---------------------------------------------------------------------------
+# FreePointMass24 directional and stability tests
+# ---------------------------------------------------------------------------
+
+class TestFreePointMass24Simulation:
+  """Verify that FreePointMass24's cardinal moment arms produce correct directional dynamics.
+
+  Sign convention: generalized_forces = -forces * moments. Each muscle's moment arm is set so
+  that activation produces movement in the named direction (r=right, u=up, l=left, d=down).
+  """
+
+  _ORIGIN = torch.tensor([[0.0, 0.0, 0.0, 0.0]])
+
+  def _make(self):
+    return FreePointMass24(muscle=ReluMuscle())
+
+  def test_no_nan_after_passive_simulation(self):
+    eff = self._make()
+    eff.reset(options={"joint_state": self._ORIGIN})
+    action = torch.zeros(1, 4)
+    for _ in range(100):
+      eff.step(action)
+    for key, val in eff.states.items():
+      if val is not None:
+        assert not torch.isnan(val).any(), f"NaN in '{key}' after passive simulation"
+
+  def test_no_nan_after_active_simulation(self):
+    eff = self._make()
+    eff.reset(options={"joint_state": self._ORIGIN})
+    action = torch.tensor([[0.5, 0.3, 0.0, 0.2]])
+    for _ in range(100):
+      eff.step(action)
+    for key, val in eff.states.items():
+      if val is not None:
+        assert not torch.isnan(val).any(), f"NaN in '{key}' after active simulation"
+
+  def test_r_muscle_moves_mass_right(self):
+    eff = self._make()
+    eff.reset(options={"joint_state": self._ORIGIN})
+    action = torch.tensor([[1.0, 0.0, 0.0, 0.0]])  # r only
+    for _ in range(100):
+      eff.step(action)
+    assert eff.states["joint"][0, 0].item() > 0.0
+
+  def test_u_muscle_moves_mass_up(self):
+    eff = self._make()
+    eff.reset(options={"joint_state": self._ORIGIN})
+    action = torch.tensor([[0.0, 1.0, 0.0, 0.0]])  # u only
+    for _ in range(100):
+      eff.step(action)
+    assert eff.states["joint"][0, 1].item() > 0.0
+
+  def test_l_muscle_moves_mass_left(self):
+    eff = self._make()
+    eff.reset(options={"joint_state": self._ORIGIN})
+    action = torch.tensor([[0.0, 0.0, 1.0, 0.0]])  # l only
+    for _ in range(100):
+      eff.step(action)
+    assert eff.states["joint"][0, 0].item() < 0.0
+
+  def test_d_muscle_moves_mass_down(self):
+    eff = self._make()
+    eff.reset(options={"joint_state": self._ORIGIN})
+    action = torch.tensor([[0.0, 0.0, 0.0, 1.0]])  # d only
+    for _ in range(100):
+      eff.step(action)
+    assert eff.states["joint"][0, 1].item() < 0.0
+
+  def test_symmetric_cocontraction_minimal_displacement(self):
+    """Equal activation of all four muscles should yield near-zero net displacement."""
+    eff = self._make()
+    eff.reset(options={"joint_state": self._ORIGIN})
+    action = torch.tensor([[0.5, 0.5, 0.5, 0.5]])
+    for _ in range(50):
+      eff.step(action)
+    pos = eff.states["joint"][0, :2]
+    assert pos.abs().max().item() < 0.05
