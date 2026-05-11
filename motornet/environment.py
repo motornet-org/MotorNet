@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 import gymnasium as gym
-from gymnasium.utils import seeding
 from typing import Any
 
 
@@ -19,15 +18,15 @@ class Environment(gym.Env, torch.nn.Module):
     differentiable: `Boolean`, whether the environment will be differentiable or not. This will usually be useful for
       reinforcement learning, where the differentiability is not needed.
     max_ep_duration: `Float`, the maximum duration of an episode, in seconds.
-    action_noise: `Float`, the standard deviation of the Gaussian noise added to the action input at each step of the 
+    action_noise: `Float`, the standard deviation of the Gaussian noise added to the action input at each step of the
       simulation.
     obs_noise: `Float` or `list`, the standard deviation of the Gaussian noise added to the observation vector at each
-      step of the simulation. If this is a `list`, it should have as many elements as the observation vector and will 
+      step of the simulation. If this is a `list`, it should have as many elements as the observation vector and will
       indicate the standard deviation of each observation element independently.
     action_frame_stacking: `Integer`, the number of past action steps to add to the observation vector.
-    proprioception_delay: `Float`, the delay in seconds for the proprioceptive feedback to be added to the observation 
+    proprioception_delay: `Float`, the delay in seconds for the proprioceptive feedback to be added to the observation
       vector. If `None`, no delay will occur.
-    vision_delay: `Float`, the delay in seconds for the visual feedback to be added to the observation vector. If 
+    vision_delay: `Float`, the delay in seconds for the visual feedback to be added to the observation vector. If
       `None`, no delay will occur.
     proprioception_noise: `Float`, the standard deviation of the Gaussian noise added to the proprioceptive feedback at
       each step of the simulation.
@@ -51,7 +50,7 @@ class Environment(gym.Env, torch.nn.Module):
     vision_noise: float = 0.,
     **kwargs,
   ):
-    
+
     super().__init__(**kwargs)
 
     self._device = torch.device('cpu')
@@ -98,7 +97,7 @@ class Environment(gym.Env, torch.nn.Module):
 
     self.proprioception_delay = int(proprioception_delay / self.dt)
     self.vision_delay = int(vision_delay / self.dt)
-    
+
     self.obs_buffer = {
       "proprioception": [None] * self.proprioception_delay,
       "vision":  [None] * self.vision_delay,
@@ -118,7 +117,7 @@ class Environment(gym.Env, torch.nn.Module):
       A `numpy.ndarray` if `x` is a `tensor`, otherwise `x` unchanged.
     """
     return x.cpu().detach().numpy() if torch.is_tensor(x) else x
-  
+
   def _build_spaces(self):
     self.action_space = gym.spaces.Box(low=0., high=1., shape=(self.effector.n_muscles,), dtype=np.float32)
 
@@ -130,7 +129,7 @@ class Environment(gym.Env, torch.nn.Module):
 
     self.action_noise = handle_noise_arg(self._action_noise, self.action_space)
     self.obs_noise = handle_noise_arg(self._obs_noise, self.observation_space)
-  
+
   # # # ========================================================================================
   # # # ========================================================================================
   # # # The methods below are those MOST likely to be overwritten by users creating custom tasks
@@ -180,7 +179,7 @@ class Environment(gym.Env, torch.nn.Module):
       self.obs_buffer["vision"][0],
       self.obs_buffer["proprioception"][0],
       ] + self.obs_buffer["action"][:self.action_frame_stacking]
-    
+
     obs = torch.cat(obs_as_list, dim=-1)
 
     if deterministic is False:
@@ -203,28 +202,28 @@ class Environment(gym.Env, torch.nn.Module):
       deterministic: `Boolean`, whether observation, action, proprioception, and vision noise are applied.
       **kwargs: Passed as-is to the :meth:`motornet.effector.Effector.step` call. Mainly useful to pass
         `endpoint_load` or `joint_load` kwargs.
-  
+
     Returns:
-      - The observation vector as `tensor` or `numpy.ndarray`, if the :class:`Environment` is set as differentiable or 
+      - The observation vector as `tensor` or `numpy.ndarray`, if the :class:`Environment` is set as differentiable or
         not, respectively. It has dimensionality `(batch_size, n_features)`.
-      - A `numpy.ndarray` with the reward information for the step, with dimensionality `(batch_size, 1)`. This is 
-        `None` if the :class:`Environment` is set as differentiable. By default this always returns `0.` in the 
+      - A `numpy.ndarray` with the reward information for the step, with dimensionality `(batch_size, 1)`. This is
+        `None` if the :class:`Environment` is set as differentiable. By default this always returns `0.` in the
         :class:`Environment`.
       - A `boolean` indicating if the simulation has been terminated or truncated. If the :class:`Environment` is set as
-        differentiable, this returns `True` when the simulation time reaches `max_ep_duration` provided at 
+        differentiable, this returns `True` when the simulation time reaches `max_ep_duration` provided at
         initialization.
       - A `boolean` indicating if the simulation has been truncated early or not. This always returns `False` if the
         :class:`Environment` is set as differentiable.
       - A `dictionary` containing this step's information.
     """
-    
+
     self.elapsed += self.dt
 
     action = action if torch.is_tensor(action) else torch.tensor(action, dtype=torch.float32).to(self.device)
     noisy_action = action
     if deterministic is False:
       noisy_action = self.apply_noise(noisy_action, noise=self.action_noise)
-    
+
     self.effector.step(noisy_action, **kwargs)
 
     obs = self.get_obs(action=noisy_action)
@@ -241,7 +240,11 @@ class Environment(gym.Env, torch.nn.Module):
 
     return obs, reward, terminated, truncated, info
 
-  def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[torch.Tensor | np.ndarray, dict[str, Any]]:
+  def reset(
+    self, *,
+    seed: int | None = None,
+    options: dict[str, Any] | None = None,
+  ) -> tuple[torch.Tensor | np.ndarray, dict[str, Any]]:
     """Initialize the task goal and :attr:`effector` states for a (batch of) simulation episode(s). The
     :attr:`effector` states (joint, cartesian, muscle, geometry) are initialized to be biomechanically
     compatible with each other. This method is likely to be overwritten by any subclass to implement
@@ -259,14 +262,14 @@ class Environment(gym.Env, torch.nn.Module):
 
     Options:
       - **batch_size**: `Integer`, the desired batch size. Default: `1`.
-      - **joint_state**: The joint state from which the other state values are inferred. If `None`, the `q_init` value 
+      - **joint_state**: The joint state from which the other state values are inferred. If `None`, the `q_init` value
         declared during the class instantiation will be used. If `q_init` is also `None`, random initial joint
         states are drawn, from which the other state values are inferred. Default: `None`.
       - **deterministic**: `Boolean`, whether observation, proprioception, and vision noise are applied.
         Default: `False`.
 
     Returns:
-      - The observation vector as `tensor` or `numpy.ndarray`, if the :class:`Environment` is set as differentiable or 
+      - The observation vector as `tensor` or `numpy.ndarray`, if the :class:`Environment` is set as differentiable or
         not, respectively. It has dimensionality `(batch_size, n_features)`.
       - A `dictionary` containing the initial step's information.
     """
@@ -284,13 +287,13 @@ class Environment(gym.Env, torch.nn.Module):
     else:
       joint_state = self.q_init
 
-    #self.muscle_normalizer = self.detach(self.muscle.max_iso_force / torch.mean(self.muscle.max_iso_force))
+    # self.muscle_normalizer = self.detach(self.muscle.max_iso_force / torch.mean(self.muscle.max_iso_force))
     # goal = self.joint2cartesian(self.draw_random_uniform_states(batch_size)).chunk(2, dim=-1)
     self.goal = torch.zeros((batch_size, self.skeleton.space_dim)).to(self.device)
     self.elapsed = 0.
 
     self.effector.reset(options={"batch_size": batch_size, "joint_state": joint_state})
-    
+
     # initialize buffer
     action = torch.zeros((batch_size, self.action_space.shape[0])).to(self.device)
     self.obs_buffer["proprioception"] = [self.get_proprioception()] * len(self.obs_buffer["proprioception"])
@@ -307,7 +310,7 @@ class Environment(gym.Env, torch.nn.Module):
         "goal": self.goal if self.differentiable else self.detach(self.goal),
         }
     return obs, info
-  
+
   # # # ========================================================================================
   # # # ========================================================================================
   # # # The methods below are those LESS likely to be overwritten by users creating custom tasks
@@ -353,11 +356,11 @@ class Environment(gym.Env, torch.nn.Module):
 
   def _maybe_detach_states(self):
     return self.states if self.differentiable else {key: self.detach(val) for key, val in self.states.items()}
-  
+
   def joint2cartesian(self, joint_states: torch.Tensor) -> torch.Tensor:
     """Shortcut to :meth:`motornet.effector.Effector.joint2cartesian()` method."""
     return self.effector.joint2cartesian(joint_states)
-  
+
   def _set_generator(self, seed: int | None):
     if seed is not None:
       self.effector.reset(seed=seed)
@@ -381,9 +384,9 @@ class Environment(gym.Env, torch.nn.Module):
     Args:
       loc: input on which the Gaussian noise is applied, which in probabilistic terms make it the mean of the
         Gaussian distribution.
-      noise: `Float` or `list`, the standard deviation (spread or “width”) of the distribution. Must be 
-        non-negative. If this is a `list, it must contain as many elements as the second axis of `loc`, and the 
-        Gaussian distribution for each column of `loc` will have a different standard deviation. Note that the 
+      noise: `Float` or `list`, the standard deviation (spread or “width”) of the distribution. Must be
+        non-negative. If this is a `list, it must contain as many elements as the second axis of `loc`, and the
+        Gaussian distribution for each column of `loc` will have a different standard deviation. Note that the
         elements within each column of `loc` will still be independent and identically distributed (`i.i.d.`).
 
     Returns:
@@ -431,7 +434,7 @@ class Environment(gym.Env, torch.nn.Module):
     """Gets the environment object's configuration as a `dictionary`.
 
     Returns:
-      A `dictionary` containing the  parameters of the environment's configuration. All parameters held as 
+      A `dictionary` containing the  parameters of the environment's configuration. All parameters held as
       non-callable attributes by the object instance will be included in the `dictionary`, excluding
       `gym.spaces.Space` attributes, the effector, muscle, and skeleton attributes.
     """
@@ -448,7 +451,7 @@ class Environment(gym.Env, torch.nn.Module):
 
     cfg["effector"] = self.effector.get_save_config()
     return cfg
-  
+
   def to(self, *args, **kwargs):
     if args and isinstance(args[0], (str, torch.device)):
       self._device = torch.device(args[0])
@@ -495,7 +498,7 @@ class RandomTargetReach(Environment):
     batch_size: int = options.get('batch_size', 1)
     joint_state: torch.Tensor | np.ndarray | None = options.get('joint_state', None)
     deterministic: bool = options.get('deterministic', False)
-    
+
     if joint_state is not None:
       joint_state_shape = np.shape(self.detach(joint_state))
       if joint_state_shape[0] > 1:

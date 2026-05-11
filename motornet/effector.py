@@ -10,9 +10,9 @@ class Effector(torch.nn.Module):
   """Base class for `Effector` objects.
 
   Args:
-    skeleton: A :class:`motornet.skeleton.Skeleton` object class or subclass. This defines the type of 
+    skeleton: A :class:`motornet.skeleton.Skeleton` object class or subclass. This defines the type of
       skeleton that the muscles will wrap around.
-    muscle: A :class:`motornet.muscle.Muscle` object class or subclass. This defines the type of 
+    muscle: A :class:`motornet.muscle.Muscle` object class or subclass. This defines the type of
       muscle that will be added each time the :meth:`add_muscle` method is called.
     name: `String`, the name of the object instance.
     timestep: `Float`, size of a single timestep (in sec).
@@ -21,7 +21,7 @@ class Effector(torch.nn.Module):
     integration_method: `String`, "euler" to specify that numerical integration should be done using the Euler
       method, or "rk4", "rungekutta4", "runge-kutta4", or "runge-kutta-4" to specify the Runge-Kutta 4 method
       instead. This argument is case-insensitive.
-    damping: `Float`, the damping coefficient applied at each joint, proportional to joint velocity. This value 
+    damping: `Float`, the damping coefficient applied at each joint, proportional to joint velocity. This value
       should be positive to reduce joint torques proportionally to joint velocity.
     pos_upper_bound: `Float`, `list` or `tuple`, indicating the upper boundary of the skeleton's joint position.
       This should be a `n`-elements vector or `list`, with `n` the number of joints of the skeleton. For instance,
@@ -36,7 +36,7 @@ class Effector(torch.nn.Module):
       This should be a `n`-elements vector or `list`, with `n` the number of joints of the skeleton. For instance,
       for a two degrees-of-freedom arm, we would have `n=2`.
   """
-    
+
   def __init__(
     self,
     skeleton,
@@ -51,7 +51,7 @@ class Effector(torch.nn.Module):
     vel_lower_bound: Union[float, list, tuple] = None,
     vel_upper_bound: Union[float, list, tuple] = None,
   ):
-    
+
     super().__init__()
 
     self._device = torch.device('cpu')
@@ -79,7 +79,7 @@ class Effector(torch.nn.Module):
     vel_bounds = self._set_state_limit_bounds(lb=vel_lower_bound, ub=vel_upper_bound)
     pos_range = torch.tensor(pos_bounds[:, 0] - pos_bounds[:, 1], dtype=torch.float32)
     vel_range = torch.tensor(vel_bounds[:, 0] - vel_bounds[:, 1], dtype=torch.float32)
-    
+
     self.register_buffer('pos_upper_bound', torch.tensor(pos_bounds[:, 1], dtype=torch.float32))
     self.register_buffer('pos_lower_bound', torch.tensor(pos_bounds[:, 0], dtype=torch.float32))
     self.register_buffer('vel_upper_bound', torch.tensor(vel_bounds[:, 1], dtype=torch.float32))
@@ -130,14 +130,14 @@ class Effector(torch.nn.Module):
 
     self.register_buffer('default_endpoint_load', torch.zeros((1, self.skeleton.space_dim)))
     self.register_buffer('default_joint_load', torch.zeros((1, self.skeleton.dof)))
-    
+
     if self.integration_method == 'euler':
       self._integrate = self._euler
     elif self.integration_method in ('rk4', 'rungekutta4', 'runge-kutta4', 'runge-kutta-4'):  # tuple faster than set
       self._integrate = self._rungekutta4
     else:
       raise ValueError("Provided integration method not recognized : {}".format(self.integration_method))
-    
+
     self.states = {key: None for key in ["joint", "cartesian", "muscle", "geometry", "fingertip"]}
 
   def step(self, action: torch.Tensor | np.ndarray, **kwargs) -> None:
@@ -153,7 +153,7 @@ class Effector(torch.nn.Module):
 
     action = action if torch.is_tensor(action) else torch.tensor(action, dtype=torch.float32)
     a = self.muscle.clip_activation(action)
-    
+
     for _ in range(self.n_ministeps):
       self.integrate(a, endpoint_load, joint_load)
 
@@ -167,12 +167,12 @@ class Effector(torch.nn.Module):
         However, if the environment already has a PRNG and ``seed=None`` is passed, the PRNG will *not* be reset.
         If you pass an integer, the PRNG will be reset even if it already exists.
         Usually, you want to pass an integer *right after the environment has been initialized and then never again*.
-      options: `Dictionary`, optional kwargs. This is mainly useful to pass `batch_size` and `joint_state` kwargs if 
+      options: `Dictionary`, optional kwargs. This is mainly useful to pass `batch_size` and `joint_state` kwargs if
         desired, as described below.
 
     Options:
       - **batch_size**: `Integer`, the desired batch size. Default: `1`.
-      - **joint_state**: The joint state from which the other state values are inferred. If `None`, random initial 
+      - **joint_state**: The joint state from which the other state values are inferred. If `None`, random initial
         joint states are drawn, from which the other state values are inferred. Default: `None`.
     """
     # Initialize the RNG if the seed is manually passed
@@ -382,12 +382,12 @@ class Effector(torch.nn.Module):
     segment_mom_cleaned = torch.where(self.muscle_transitions, 0., segment_moments)
 
     # sum up the contribution of all the segments belonging to a given muscle, looping over all the muscles
-    # NOTE: using a loop is not ideal here, and ideally this should move toward using nested tensors, which can 
+    # NOTE: using a loop is not ideal here, and ideally this should move toward using nested tensors, which can
     # accommodate ragged dimensions along the number of fixation points. However, PyTorch's nested tensor
     # functionality is still in prototype stage and will likely change in the future. so we are sticking with this
     # slower solution for now. This may result in incrementally large compute time as the number of muscles grow in
     # an effector instance.
-    # NOTE 2: It seems for-loops are faster than tensorflow's ragged tensor approach, even for a large number of 
+    # NOTE 2: It seems for-loops are faster than tensorflow's ragged tensor approach, even for a large number of
     # muscles. If this is also true for PyTorch's final implementation of a nested tensor then maybe we will want to
     # stick with the current approach.
     musculotendon_len_as_list = [torch.sum(y, dim=-1) for y in segment_len_cleaned.split(self.section_splits, dim=-1)]
@@ -402,7 +402,7 @@ class Effector(torch.nn.Module):
     # pack all this into one state array and flip the dimensions back (batch_size * n_features * n_muscles)
     geometry_state = torch.cat([musculotendon_len, musculotendon_vel, moment_arms], dim=1)
     return geometry_state
-  
+
   def _set_state(self, states):
     for key, val in states.items():
       self.states[key] = val
@@ -442,7 +442,12 @@ class Effector(torch.nn.Module):
     states = self.integration_step(self.minidt, state_derivative=k, states=states0)
     self._set_state(states)
 
-  def integration_step(self, dt: float, state_derivative: dict[str, torch.Tensor], states: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+  def integration_step(
+    self,
+    dt: float,
+    state_derivative: dict[str, torch.Tensor],
+    states: dict[str, torch.Tensor],
+  ) -> dict[str, torch.Tensor]:
     """Performs one numerical integration step for the :class:`motornet.muscle.Muscle` object class or
     subclass, and then for the :class:`motornet.skeleton.Skeleton` object class or subclass.
 
@@ -464,7 +469,13 @@ class Effector(torch.nn.Module):
     new_states["geometry"] = self.get_geometry(new_states["joint"])
     return new_states
 
-  def ode(self, action: torch.Tensor, states: dict[str, torch.Tensor], endpoint_load: torch.Tensor, joint_load: torch.Tensor) -> dict[str, torch.Tensor]:
+  def ode(
+    self,
+    action: torch.Tensor,
+    states: dict[str, torch.Tensor],
+    endpoint_load: torch.Tensor,
+    joint_load: torch.Tensor,
+  ) -> dict[str, torch.Tensor]:
     """Computes state derivatives by evaluating the Ordinary Differential Equations of the
     ``motornet.muscle.Muscle`` object class or subclass, and then of the
     :class:`motornet.skeleton.Skeleton` object class or subclass.
@@ -478,7 +489,7 @@ class Effector(torch.nn.Module):
       joint_load: `Tensor`, the load(s) to apply at the joints.
 
     Returns:
-      A `dictionary` containing the derivatives of the the joint, muscle, and geometry states as `Tensor`, 
+      A `dictionary` containing the derivatives of the the joint, muscle, and geometry states as `Tensor`,
       mapped to a "joint", "muscle", and "geometry" key, respectively.
     """
 
@@ -487,7 +498,7 @@ class Effector(torch.nn.Module):
     joint_vel = states["joint"].chunk(2, dim=-1)[-1]
 
     generalized_forces = - torch.sum(forces * moments, dim=-1) + joint_load - self.damping * joint_vel
-    
+
     state_derivative = {
       "muscle": self.muscle.ode(action, states["muscle"]),
       "joint": self.skeleton.ode(generalized_forces, states["joint"], endpoint_load=endpoint_load)
@@ -528,7 +539,12 @@ class Effector(torch.nn.Module):
 
     return joint0
 
-  def draw_fixed_states(self, batch_size: int, position: torch.Tensor | np.ndarray, velocity: torch.Tensor | np.ndarray | None = None) -> torch.Tensor:
+  def draw_fixed_states(
+    self,
+    batch_size: int,
+    position: torch.Tensor | np.ndarray,
+    velocity: torch.Tensor | np.ndarray | None = None,
+  ) -> torch.Tensor:
     """Creates a joint state `tensor` corresponding to the specified position, tiled `batch_size` times.
 
     Args:
@@ -641,7 +657,7 @@ class Effector(torch.nn.Module):
         self.tobuild__muscle[key].append(val)
       else:
         raise KeyError('Unexpected key "' + key + '" in muscle_kwargs argument.')
-      
+
     for key, val in self.tobuild__muscle.items():
       # if not added in the kwargs loop
       if len(val) == 0 and key in self.tobuild__default.keys():
@@ -684,7 +700,7 @@ class RigidTendonArm26(Effector):
   default geometry methods, but on its own, custom-made geometry. The moment arm approximation is based on a set of
   polynomial functions. The default integration method is Euler.
 
-  If no `skeleton` input is provided, this object will use a :class:`motornet.skeleton.TwoDofArm` 
+  If no `skeleton` input is provided, this object will use a :class:`motornet.skeleton.TwoDofArm`
   skeleton, with the following parameters (from `[1]`):
 
   - `m1 = 1.82`
@@ -743,7 +759,7 @@ class RigidTendonArm26(Effector):
     self.input_dim = self.n_muscles
 
     self.muscle_name = ['pectoralis', 'deltoid', 'brachioradialis', 'tricepslat', 'biceps', 'tricepslong']
-    
+
     self._merge_muscle_kwargs(muscle_kwargs)
 
     self.tobuild__muscle['max_isometric_force'] = [838, 1207, 1422, 1549, 414, 603]
@@ -779,7 +795,7 @@ class CompliantTendonArm26(RigidTendonArm26):
     skeleton: A :class:`motornet.skeleton.Skeleton` object class or subclass. This defines the type of
       skeleton that the muscles will wrap around. If no skeleton is passed, this will default to the skeleton
       used in the parent :class:`RigidTendonArm26` class.
-    
+
     **kwargs: All contents are passed to the parent :class:`RigidTendonArm26` class. This also
       allows for some backward compatibility.
   """

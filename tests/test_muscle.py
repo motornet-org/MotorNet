@@ -1,6 +1,5 @@
 """Tests for motornet.muscle — all muscle classes and the shared activation ODE."""
 
-import numpy as np
 import pytest
 import torch
 

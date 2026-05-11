@@ -5,7 +5,7 @@ from typing import Any
 
 class Muscle(torch.nn.Module):
   """Base class for `Muscle` objects. If a effector contains several muscles, this object will contain all of
-  those in a vectorized format, meaning for any given effector there will always be only `one` muscle object, 
+  those in a vectorized format, meaning for any given effector there will always be only `one` muscle object,
   regardless of the number of muscles wrapped around the skeleton.
 
   The dimensionality of the muscle states produced by this object and subclasses will always be
@@ -33,7 +33,7 @@ class Muscle(torch.nn.Module):
     tau_activation: float = 0.015,
     tau_deactivation: float = 0.05
   ):
-    
+
     super().__init__()
 
     self._device = torch.device('cpu')
@@ -56,7 +56,7 @@ class Muscle(torch.nn.Module):
 
   def clip_activation(self, a: torch.Tensor) -> torch.Tensor:
     return torch.clamp(a, self.min_activation, 1.)
-  
+
   def to(self, *args, **kwargs):
     if args and isinstance(args[0], (str, torch.device)):
       self._device = torch.device(args[0])
@@ -71,8 +71,8 @@ class Muscle(torch.nn.Module):
     return self._device
 
   def build(self, timestep: float, max_isometric_force: float | list, **kwargs) -> None:
-    """Build the muscle given parameters from the ``motornet.effector.Effector`` wrapper object. This should be 
-    called by the :meth:`motornet.effector.Effector.add_muscle` method to build the muscle scructure according to 
+    """Build the muscle given parameters from the ``motornet.effector.Effector`` wrapper object. This should be
+    called by the :meth:`motornet.effector.Effector.add_muscle` method to build the muscle scructure according to
     the parameters of that effector.
 
     Args:
@@ -109,7 +109,13 @@ class Muscle(torch.nn.Module):
   def _get_initial_muscle_state(self, batch_size, geometry_state):
     raise NotImplementedError
 
-  def integrate(self, dt: float, state_derivative: torch.Tensor, muscle_state: torch.Tensor, geometry_state: torch.Tensor) -> torch.Tensor:
+  def integrate(
+    self,
+    dt: float,
+    state_derivative: torch.Tensor,
+    muscle_state: torch.Tensor,
+    geometry_state: torch.Tensor,
+  ) -> torch.Tensor:
     """Performs one integration step for the muscle step.
 
     Args:
@@ -124,7 +130,7 @@ class Muscle(torch.nn.Module):
       A `tensor` containing the new `muscle state` following numerical integration.
     """
     return self._integrate(dt, state_derivative, muscle_state, geometry_state)
-  
+
   def _integrate(self, dt, state_derivative, muscle_state, geometry_state):
     raise NotImplementedError
 
@@ -147,7 +153,7 @@ class Muscle(torch.nn.Module):
 
   def activation_ode(self, action: torch.Tensor, activation: torch.Tensor) -> torch.Tensor:
     """Computes the new activation value of the (set of) muscle(s) according to the Ordinary Differential Equation
-    shown in equations 1-2 in `[1]`. Note that this is incidentally the same activation function as used for the 
+    shown in equations 1-2 in `[1]`. Note that this is incidentally the same activation function as used for the
     `muscle` actuators in MuJoCo `[2]`.
 
     References:
@@ -232,7 +238,6 @@ class ReluMuscle(Muscle):
     return torch.cat([activation0, len_vel, force0], dim=1)
 
 
-
 class MujocoHillMuscle(Muscle):
   """This pre-built muscle class is an implementation of a Hill-type muscle model as detailed in the MuJoCo
   documentation [1]. It is a rigid tendon Hill-type model.
@@ -256,7 +261,7 @@ class MujocoHillMuscle(Muscle):
     tau_deactivation: float = 0.04,
     **kwargs,
   ):
-    
+
     super().__init__(
       min_activation=min_activation,
       tau_activation=tau_activation,
@@ -309,7 +314,7 @@ class MujocoHillMuscle(Muscle):
     fvmax,
   ):
     """Build the muscle using arguments from the :class:`motornet.effector.Effector` wrapper object. This
-    should be called by the :meth:`motornet.effector.Effector.add_muscle` method to build the muscle 
+    should be called by the :meth:`motornet.effector.Effector.add_muscle` method to build the muscle
     structure according to the parameters of that effector.
 
     Args:
@@ -318,7 +323,7 @@ class MujocoHillMuscle(Muscle):
         muscle can use. If several muscles are being built, then this should be a list containing as many
         elements as there are muscles.
       tendon_length: `Float` or `list` of `float`, the tendon length (m) of the muscle(s). If several
-        muscles are declared in the parent effector object, then this should be a list containing as many 
+        muscles are declared in the parent effector object, then this should be a list containing as many
         elements as there are muscles in that parent effector object.
       optimal_muscle_length: `Float` or `list` of `float`, the optimal length (m) of the muscle(s). This defines
         the length at which the muscle will output the maximum amount of force given the same excitation. If
@@ -336,7 +341,7 @@ class MujocoHillMuscle(Muscle):
         force.
     """
     self.n_muscles = np.array(tendon_length).size
-    
+
     def to_tensor(x):
       tensor = torch.tensor(x, dtype=torch.float32).reshape((1, 1, -1))
       if tensor.numel() != 1 and tensor.numel() != self.n_muscles:
@@ -356,7 +361,6 @@ class MujocoHillMuscle(Muscle):
     self.register_buffer('fvmax', to_tensor(fvmax))
 
     self.dt = timestep
-
 
     # derived quantities
     # a = 0.5*(lmin+1)
@@ -424,7 +428,6 @@ class MujocoHillMuscle(Muscle):
     force = (activation * flce * fvce + self.passive_forces * flpe) * self.max_iso_force
     return torch.cat([activation, muscle_len * self.l0_ce, muscle_vel * self.vmax, flpe, flce, fvce, force], dim=1)
 
-    
   def _bump(self, L, mid, lmax):
     """Skewed bump function: quadratic spline."""
 
@@ -538,11 +541,11 @@ class RigidTendonHillMuscle(Muscle):
         elements as there are muscles in that parent effector object.
       optimal_muscle_length: `Float` or `list` of `float`, the optimal length (m) of the muscle(s). This defines
         the length at which the muscle will output the maximum amount of force given the same excitation. If
-        several muscles are declared in the parent effector object, then this should be a list containing as 
+        several muscles are declared in the parent effector object, then this should be a list containing as
         many elements as there are muscles in that parent effector object.
       normalized_slack_muscle_length: `Float` or `list` of `float`, the muscle length (m) past which the
         muscle(s) will start to develop passive forces. If several muscles are declared in the parent effector
-        object, then this should be a list containing as many elements as there are muscles in that parent 
+        object, then this should be a list containing as many elements as there are muscles in that parent
         effector object.
     """
     self.n_muscles = np.array(tendon_length).size
@@ -681,7 +684,7 @@ class RigidTendonHillMuscleThelen(Muscle):
     normalized_slack_muscle_length
   ):
     """Build the muscle using arguments from the :class:`motornet.effector.Effector` wrapper object. This
-    should be called by the :meth:`motornet.effector.Effector.add_muscle` method to build the muscle 
+    should be called by the :meth:`motornet.effector.Effector.add_muscle` method to build the muscle
     structure according to the parameters of that effector.
 
     Args:
@@ -694,11 +697,11 @@ class RigidTendonHillMuscleThelen(Muscle):
         elements as there are muscles in that parent effector object.
       optimal_muscle_length: `Float` or `list` of `float`, the optimal length (m) of the muscle(s). This defines
         the length at which the muscle will output the maximum amount of force given the same excitation. If
-        several muscles are declared in the parent effector object, then this should be a list containing as 
+        several muscles are declared in the parent effector object, then this should be a list containing as
         many elements as there are muscles in that parent effector object.
       normalized_slack_muscle_length: `Float` or `list` of `float`, the muscle length (m) past which the
         muscle(s) will start to develop passive forces. If several muscles are declared in the parent effector
-        object, then this should be a list containing as many elements as there are muscles in that parent 
+        object, then this should be a list containing as many elements as there are muscles in that parent
         effector object.
     """
     self.n_muscles = np.array(tendon_length).size
@@ -889,8 +892,8 @@ class CompliantTendonHillMuscle(RigidTendonHillMuscle):
     sqrt_term = active_force ** 2 + 2 * active_force * p1 * self.s_as + \
       2 * active_force * p3 + p1 ** 2 * self.s_as ** 2 + 2 * p1 * p3 * self.s_as +\
       p2_containing_term + p3 ** 2
-    #cond = torch.logical_or(torch.less(sqrt_term, 0.), torch.greater_equal(active_force, f_x_a))
-    #torch._assert(cond, message='root that should be used is negative.')
+    # cond = torch.logical_or(torch.less(sqrt_term, 0.), torch.greater_equal(active_force, f_x_a))
+    # torch._assert(cond, message='root that should be used is negative.')
     sqrt_term = torch.clip(sqrt_term, min=0.)
 
     new_muscle_vel_nom = torch.where(

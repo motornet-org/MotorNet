@@ -12,7 +12,6 @@ from motornet.muscle import (
 from motornet.skeleton import PointMass
 from motornet.effector import (
     CompliantTendonArm26,
-    Effector,
     ReluPointMass24,
     RigidTendonArm26,
 )

@@ -45,18 +45,18 @@ class Skeleton(torch.nn.Module):
     self.input_dim = kwargs.get('input_dim', self.dof)
     self.state_dim = kwargs.get('state_dim', self.dof * 2)
     self.output_dim = kwargs.get('output_dim', self.state_dim)
-    self.geometry_state_dim = 2 + self.dof # two geometry variable per muscle: path_length, path_velocity
-    self.default_endpoint_load = torch.zeros((1, self.space_dim)) #tf.zeros((1, self.space_dim), dtype=tf.float32)
+    self.geometry_state_dim = 2 + self.dof  # two geometry variable per muscle: path_length, path_velocity
+    self.default_endpoint_load = torch.zeros((1, self.space_dim))  # tf.zeros((1, self.space_dim), dtype=tf.float32)
 
     self.pos_lower_bound = pos_lower_bound
     self.pos_upper_bound = pos_upper_bound
-    self.vel_lower_bound = vel_lower_bound # cap as defensive code
+    self.vel_lower_bound = vel_lower_bound  # cap as defensive code
     self.vel_upper_bound = vel_upper_bound
 
     self.clip_position = None
     self.init = False
     self.built = False
-    #self.detach = lambda x: x.cpu().detach().numpy() if torch.is_tensor(x) else x
+    # self.detach = lambda x: x.cpu().detach().numpy() if torch.is_tensor(x) else x
 
     self.clip = self._clip
 
@@ -69,7 +69,7 @@ class Skeleton(torch.nn.Module):
 
   def detach(self, x: Any) -> Any:
     return x.cpu().detach().numpy() if torch.is_tensor(x) else x
-  
+
   def build(
       self,
       timestep: float,
@@ -78,7 +78,7 @@ class Skeleton(torch.nn.Module):
       vel_upper_bound: float | list | tuple | np.ndarray | torch.Tensor,
       vel_lower_bound: float | list | tuple | np.ndarray | torch.Tensor,
       ) -> None:
-    """This method should be called by the initialization method of the 
+    """This method should be called by the initialization method of the
     :class:`motornet.effector.Effector` object class or subclass.
 
     Args:
@@ -96,7 +96,7 @@ class Skeleton(torch.nn.Module):
         be a `n`-elements vector or list, with `n` the number of joints of the skeleton. For instance, for a two
         degrees-of-freedom arm, we would have `n=2`.
     """
-    
+
     for _attr in ('pos_upper_bound', 'pos_lower_bound', 'vel_upper_bound', 'vel_lower_bound'):
       self.__dict__.pop(_attr, None)
     self.register_buffer('pos_upper_bound', torch.as_tensor(pos_upper_bound, dtype=torch.float32).reshape(1, -1))
@@ -107,7 +107,12 @@ class Skeleton(torch.nn.Module):
     self.clip_position = self.clip_method
     self.built = True
 
-  def path2cartesian(self, path_coordinates: torch.Tensor, path_fixation_body: torch.Tensor, joint_state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+  def path2cartesian(
+    self,
+    path_coordinates: torch.Tensor,
+    path_fixation_body: torch.Tensor,
+    joint_state: torch.Tensor,
+  ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Transforms muscle paths into cartesian paths for each muscle's fixation points, given a joint configuration.
     This method is used by the wrapper :class:`motornet.plants.plants.Plant` object class or subclass to then
     calculate musculotendon complex length and velocity, as well as moment arms. See `[1]` for more details.
@@ -137,10 +142,10 @@ class Skeleton(torch.nn.Module):
         subclass, and `n_fixation_points` the number of fixation points across all muscles.
     """
     return self._path2cartesian(path_coordinates, path_fixation_body, joint_state)
-  
+
   def _path2cartesian(self, path_coordinates, path_fixation_body, joint_state):
     raise NotImplementedError
-  
+
   def integrate(self, dt: float, state_derivative: torch.Tensor, joint_state: torch.Tensor) -> torch.Tensor:
     """Performs one integration step. This method is usually called by the
     :meth:`motornet.effector.Effector.integration_step` during numerical integration by the
@@ -189,7 +194,7 @@ class Skeleton(torch.nn.Module):
       The derivatives of the joint state. The dimensionality is identical to that of the `joint_state` input.
     """
     return self._ode(inputs, joint_state, endpoint_load)
-  
+
   def _ode(self, inputs, joint_state, endpoint_load):
     raise NotImplementedError
 
@@ -232,7 +237,7 @@ class Skeleton(torch.nn.Module):
       By default, this method returns the output of the :meth:`get_base_config` method.
     """
     return self.get_base_config()
-  
+
   def setattr(self, name: str, value: Any) -> None:
     """Changes the value of an attribute held by this object.
 
@@ -289,7 +294,7 @@ class PointMass(Skeleton):
     new_vel = self.clip_velocity(new_pos, new_vel)
     new_pos = self.clip_position(new_pos)
     return torch.cat([new_pos, new_vel], dim=1)
-  
+
   def _path2cartesian(self, path_coordinates, path_fixation_body, joint_state):
     pos, vel = joint_state[:, :, None].chunk(2, dim=1)
     # if fixed on the point mass, then add the point-mass position / velocity to the fixation point coordinate
@@ -339,7 +344,7 @@ class TwoDofArm(Skeleton):
     ub = [sho_limit[1], elb_limit[1]]
     super().__init__(dof=2, space_dim=2, pos_lower_bound=lb, pos_upper_bound=ub, name=name, **kwargs)
 
-    self.m1 = m1 # masses of arm links
+    self.m1 = m1  # masses of arm links
     self.m2 = m2
     self.L1g = kwargs.get('L1g', l1g)  # center of mass of the links
     self.L2g = kwargs.get('L2g', l2g)
@@ -398,7 +403,7 @@ class TwoDofArm(Skeleton):
 
     # apply external loads
     # torque = jacobian.T @ endpoint_load
-    r_col = (jacobian_11 * endpoint_load[:, 0]) + (jacobian_21 * endpoint_load[:, 1]) # these are torques
+    r_col = (jacobian_11 * endpoint_load[:, 0]) + (jacobian_21 * endpoint_load[:, 1])  # these are torques
     l_col = (jacobian_12 * endpoint_load[:, 0]) + (jacobian_22 * endpoint_load[:, 1])
     torques = inputs + torch.stack([r_col, l_col], dim=1)
 
@@ -485,7 +490,7 @@ class TwoDofArm(Skeleton):
 
     sho_vel_3d = joint_vel[:, 0, None, None]
     elb_vel_3d = joint_vel[:, 1, None, None] + sho_vel_3d
-    dxy_dt = dxy_da1 * sho_vel_3d + dxy_da2 * elb_vel_3d # by virtue of the chain rule
+    dxy_dt = dxy_da1 * sho_vel_3d + dxy_da2 * elb_vel_3d  # according to the chain rule
 
     bone_origin = torch.where(path_fixation_body == 2, torch.cat([elb_x, elb_y], dim=1), 0.)
     xy = torch.cat([dy_da, -dx_da], dim=1) + bone_origin
