@@ -694,6 +694,88 @@ class ReluPointMass24(Effector):
     self.add_muscle(path_fixation_body=[0, 1], path_coordinates=ll, name='LowerLeft', max_isometric_force=f)
 
 
+class Reacher(Effector):
+  """A simplified four-muscle arm model with constant moment arms, compatible with any muscle type.
+
+  Unlike anatomy-driven effectors, this class bypasses the default geometry calculation and uses a
+  fixed moment arm matrix that does not vary with joint angle. Musculotendon lengths and velocities
+  are set to zero, decoupling the model from force-length/velocity effects. This makes it useful for
+  studying control strategies independently of complex musculoskeletal geometry.
+
+  The four muscles represent functional groups acting on the shoulder and elbow joints:
+
+  - ``sf``: shoulder flexor  (moment arm: shoulder = -1, elbow = 0)
+  - ``se``: shoulder extensor (moment arm: shoulder = +1, elbow = 0)
+  - ``ef``: elbow flexor     (moment arm: shoulder = 0, elbow = -1)
+  - ``ee``: elbow extensor   (moment arm: shoulder = 0, elbow = +1)
+
+  If no ``skeleton`` is provided, this object will use a :class:`motornet.skeleton.TwoDofArm`
+  with the following parameters:
+
+  - ``m1 = 1.82``
+  - ``m2 = 1.43``
+  - ``l1g = 0.135``
+  - ``l2g = 0.165``
+  - ``i1 = 0.051``
+  - ``i2 = 0.057``
+  - ``l1 = 0.309``
+  - ``l2 = 0.333``
+
+  The default shoulder and elbow lower limits are ``0``, and the default upper limits are ``135`` and
+  ``155`` degrees, respectively.
+
+  Args:
+    muscle: A :class:`motornet.muscle.Muscle` object class or subclass. Defines the muscle type
+      used for all four muscles.
+    skeleton: A :class:`motornet.skeleton.Skeleton` object class or subclass. Defaults to a
+      :class:`motornet.skeleton.TwoDofArm` as described above if not provided.
+    timestep: `Float`, size of a single timestep (in sec).
+    muscle_kwargs: `Dictionary`, muscle parameters passed to the :meth:`motornet.muscle.Muscle.build`
+      method. If ``max_isometric_force`` is not included, it defaults to ``[1000, 1000, 1000, 1000]``.
+    **kwargs: All contents are passed to the parent :class:`Effector` class.
+  """
+
+  def __init__(self, muscle, skeleton=None, timestep=0.01, muscle_kwargs: dict = {}, **kwargs):
+    sho_limit = np.deg2rad([0, 135])
+    elb_limit = np.deg2rad([0, 155])
+    pos_lower_bound = kwargs.pop('pos_lower_bound', [sho_limit[0], elb_limit[0]])
+    pos_upper_bound = kwargs.pop('pos_upper_bound', [sho_limit[1], elb_limit[1]])
+
+    if skeleton is None:
+      skeleton = TwoDofArm(m1=1.82, m2=1.43, l1g=.135, l2g=.165, i1=.051, i2=.057, l1=.309, l2=.333)
+
+    integration_method = kwargs.pop('integration_method', 'euler')
+    super().__init__(
+      skeleton=skeleton,
+      muscle=muscle,
+      timestep=timestep,
+      integration_method=integration_method,
+      pos_lower_bound=pos_lower_bound,
+      pos_upper_bound=pos_upper_bound,
+      **kwargs)
+
+    self.muscle_state_dim = self.muscle.state_dim
+    self.geometry_state_dim = 2 + self.skeleton.dof
+    self.n_muscles = 4
+    self.input_dim = self.n_muscles
+    self.muscle_name = ['sf', 'se', 'ef', 'ee']
+
+    if 'max_isometric_force' not in muscle_kwargs:
+      muscle_kwargs = {**muscle_kwargs, 'max_isometric_force': [1000] * 4}
+    self._merge_muscle_kwargs(muscle_kwargs)
+    self.muscle.build(timestep=self.dt, **self.tobuild__muscle)
+
+    a0 = np.array([-1., 1., 0., 0., 0., 0., -1., 1.], dtype=np.float32).reshape((1, 2, 4))
+    self.register_buffer('a0', torch.tensor(a0, dtype=torch.float32))
+
+  def _get_geometry(self, joint_state):
+    batch_size = joint_state.shape[0]
+    moment_arm = self.a0.expand(batch_size, -1, -1)
+    musculotendon_len_vel = torch.zeros(
+      batch_size, 2, self.n_muscles, dtype=self.a0.dtype, device=self.a0.device)
+    return torch.cat([musculotendon_len_vel, moment_arm], dim=1)
+
+
 class RigidTendonArm26(Effector):
   """This pre-built effector class is an implementation of a 6-muscles, "lumped-muscle" model from `[1]`. Because
   lumped-muscle models are functional approximations of biological reality, this class' geometry does not rely on the

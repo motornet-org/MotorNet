@@ -12,6 +12,7 @@ from motornet.muscle import (
 from motornet.skeleton import PointMass
 from motornet.effector import (
     CompliantTendonArm26,
+    Reacher,
     ReluPointMass24,
     RigidTendonArm26,
 )
@@ -93,6 +94,12 @@ def built_compliant_muscle():
 # ---------------------------------------------------------------------------
 # Effector fixtures
 # ---------------------------------------------------------------------------
+
+@pytest.fixture
+def reacher():
+    """Reacher with ReluMuscle — minimal setup, no Hill-muscle parameters needed."""
+    return Reacher(muscle=ReluMuscle())
+
 
 @pytest.fixture
 def relu_point_mass():

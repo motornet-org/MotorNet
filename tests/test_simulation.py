@@ -9,12 +9,14 @@ import torch
 
 from motornet.effector import (
     Effector,
+    Reacher,
     ReluPointMass24,
     RigidTendonArm26,
 )
 from motornet.environment import Environment, RandomTargetReach
 from motornet.muscle import (
     CompliantTendonHillMuscle,
+    ReluMuscle,
     RigidTendonHillMuscle,
     RigidTendonHillMuscleThelen,
 )
@@ -301,3 +303,96 @@ class TestPolicyGRUSimulation:
         grads = [p.grad for p in policy.parameters() if p.grad is not None]
         assert len(grads) > 0
         assert all(torch.isfinite(g).all() for g in grads)
+
+
+# ---------------------------------------------------------------------------
+# Reacher directional and stability tests
+# ---------------------------------------------------------------------------
+
+class TestReacherSimulation:
+  """Verify that Reacher's constant moment arm geometry produces correct directional dynamics.
+
+  Sign convention: generalized_forces = -forces * moment_arms (from effector.py ode).
+  Therefore:
+    - Negative moment arm + positive force → positive joint torque → joint angle increases
+    - Positive moment arm + positive force → negative joint torque → joint angle decreases
+  """
+
+  # Mid-range for both joints (radians), well away from both bounds
+  _INIT_MID = torch.tensor([[1.0, 1.0, 0.0, 0.0]])
+  # Near lower bound — good starting point for testing angle increase
+  _INIT_LOW = torch.tensor([[0.5, 0.5, 0.0, 0.0]])
+
+  def _make(self):
+    return Reacher(muscle=ReluMuscle())
+
+  def test_no_nan_after_passive_simulation(self):
+    r = self._make()
+    r.reset(options={"joint_state": self._INIT_MID})
+    action = torch.zeros(1, 4)
+    for _ in range(100):
+      r.step(action)
+    for key, val in r.states.items():
+      if val is not None:
+        assert not torch.isnan(val).any(), f"NaN in '{key}' after passive simulation"
+
+  def test_no_nan_after_active_simulation(self):
+    r = self._make()
+    r.reset(options={"joint_state": self._INIT_MID})
+    action = torch.tensor([[0.5, 0.0, 0.0, 0.5]])  # sf + ee active
+    for _ in range(100):
+      r.step(action)
+    for key, val in r.states.items():
+      if val is not None:
+        assert not torch.isnan(val).any(), f"NaN in '{key}' after active simulation"
+
+  def test_shoulder_flexor_increases_shoulder_angle(self):
+    """sf has moment arm -1 at shoulder → torque = -F*(-1) = +F → shoulder angle increases."""
+    r = self._make()
+    r.reset(options={"joint_state": self._INIT_LOW})
+    init_sho = r.states["joint"][0, 0].item()
+    action = torch.tensor([[1.0, 0.0, 0.0, 0.0]])  # sf only
+    for _ in range(100):
+      r.step(action)
+    assert r.states["joint"][0, 0].item() > init_sho
+
+  def test_shoulder_extensor_decreases_shoulder_angle(self):
+    """se has moment arm +1 at shoulder → torque = -F*(+1) = -F → shoulder angle decreases."""
+    r = self._make()
+    r.reset(options={"joint_state": self._INIT_MID})
+    init_sho = r.states["joint"][0, 0].item()
+    action = torch.tensor([[0.0, 1.0, 0.0, 0.0]])  # se only
+    for _ in range(100):
+      r.step(action)
+    assert r.states["joint"][0, 0].item() < init_sho
+
+  def test_elbow_flexor_increases_elbow_angle(self):
+    """ef has moment arm -1 at elbow → torque = -F*(-1) = +F → elbow angle increases."""
+    r = self._make()
+    r.reset(options={"joint_state": self._INIT_LOW})
+    init_elb = r.states["joint"][0, 1].item()
+    action = torch.tensor([[0.0, 0.0, 1.0, 0.0]])  # ef only
+    for _ in range(100):
+      r.step(action)
+    assert r.states["joint"][0, 1].item() > init_elb
+
+  def test_elbow_extensor_decreases_elbow_angle(self):
+    """ee has moment arm +1 at elbow → torque = -F*(+1) = -F → elbow angle decreases."""
+    r = self._make()
+    r.reset(options={"joint_state": self._INIT_MID})
+    init_elb = r.states["joint"][0, 1].item()
+    action = torch.tensor([[0.0, 0.0, 0.0, 1.0]])  # ee only
+    for _ in range(100):
+      r.step(action)
+    assert r.states["joint"][0, 1].item() < init_elb
+
+  def test_cocontraction_produces_minimal_net_movement(self):
+    """Symmetric co-contraction (equal sf+se and ef+ee) yields near-zero net displacement."""
+    r = self._make()
+    r.reset(options={"joint_state": self._INIT_MID})
+    init_joint = r.states["joint"].clone()
+    action = torch.tensor([[0.5, 0.5, 0.5, 0.5]])  # all muscles equally active
+    for _ in range(50):
+      r.step(action)
+    displacement = (r.states["joint"][:, :2] - init_joint[:, :2]).abs().max().item()
+    assert displacement < 0.05

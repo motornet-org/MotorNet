@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from motornet.effector import Effector
+from motornet.effector import Effector, Reacher
 from motornet.muscle import ReluMuscle, RigidTendonHillMuscle
 from motornet.skeleton import PointMass
 
@@ -436,3 +436,78 @@ class TestCompliantTendonArm26:
         compliant_arm26.reset(options={"batch_size": 2})
         muscle_lengths = compliant_arm26.states["muscle"][:, 1, :]
         assert (muscle_lengths > 0).all()
+
+
+# =============================================================================
+# Reacher
+# =============================================================================
+
+class TestReacher:
+
+    def test_has_4_muscles_after_init(self, reacher):
+        assert reacher.n_muscles == 4
+
+    def test_muscle_names(self, reacher):
+        assert reacher.muscle_name == ['sf', 'se', 'ef', 'ee']
+
+    def test_input_dim_equals_n_muscles(self, reacher):
+        assert reacher.input_dim == 4
+
+    def test_joint_state_shape_after_reset(self, reacher):
+        reacher.reset(options={"batch_size": 3})
+        assert reacher.states["joint"].shape == (3, 4)  # 2 joints × (pos + vel)
+
+    def test_muscle_state_shape_after_reset(self, reacher):
+        reacher.reset(options={"batch_size": 3})
+        # ReluMuscle state_dim == 4; Reacher has 4 muscles
+        assert reacher.states["muscle"].shape == (3, 4, 4)
+
+    def test_geometry_state_shape_after_reset(self, reacher):
+        reacher.reset(options={"batch_size": 3})
+        # (batch, 2+dof=4, n_muscles=4)
+        assert reacher.states["geometry"].shape == (3, 4, 4)
+
+    def test_fingertip_shape_after_reset(self, reacher):
+        reacher.reset(options={"batch_size": 3})
+        assert reacher.states["fingertip"].shape == (3, 2)
+
+    def test_musculotendon_lengths_are_zero(self, reacher):
+        reacher.reset(options={"batch_size": 2})
+        lengths = reacher.states["geometry"][:, 0, :]
+        assert torch.all(lengths == 0.0)
+
+    def test_musculotendon_velocities_are_zero(self, reacher):
+        reacher.reset(options={"batch_size": 2})
+        velocities = reacher.states["geometry"][:, 1, :]
+        assert torch.all(velocities == 0.0)
+
+    def test_moment_arms_match_a0(self, reacher):
+        import numpy as np
+        reacher.reset(options={"batch_size": 5})
+        moment_arms = reacher.states["geometry"][:, 2:, :]  # (5, 2, 4)
+        expected = np.array([-1., 1., 0., 0., 0., 0., -1., 1.],
+                             dtype=np.float32).reshape(2, 4)
+        expected_t = torch.tensor(expected).unsqueeze(0).expand(5, -1, -1)
+        assert torch.allclose(moment_arms, expected_t)
+
+    def test_geometry_is_constant_across_joint_states(self, reacher):
+        """Moment arms must not change regardless of joint configuration."""
+        pos_a = torch.zeros(1, 4)
+        pos_b = torch.tensor([[1.0, 1.0, 0.0, 0.0]])
+        reacher.reset(options={"joint_state": pos_a})
+        geom_a = reacher.states["geometry"].clone()
+        reacher.reset(options={"joint_state": pos_b})
+        geom_b = reacher.states["geometry"].clone()
+        assert torch.allclose(geom_a, geom_b)
+
+    def test_custom_max_isometric_force_via_muscle_kwargs(self):
+        import torch
+        r = Reacher(muscle=ReluMuscle(), muscle_kwargs={"max_isometric_force": [500] * 4})
+        r.reset(seed=0)
+        # The muscle was built successfully; activation at max should produce a finite state
+        assert torch.isfinite(r.states["muscle"]).all()
+
+    def test_default_max_isometric_force_is_1000(self):
+        r = Reacher(muscle=ReluMuscle())
+        # _merge_muscle_kwargs appends the list, so the stored value is [[1000]*4]
+        assert r.tobuild__muscle["max_isometric_force"] == [[1000] * 4]
