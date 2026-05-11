@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 import torch
 import gymnasium as gym
@@ -34,6 +35,18 @@ class Environment(gym.Env, torch.nn.Module):
       simulation.
     **kwargs: This is passed as-is to the :class:`torch.nn.Module` parent class.
   """
+  def __init_subclass__(cls, **kwargs):
+    super().__init_subclass__(**kwargs)
+    if (cls.get_obs is not Environment.get_obs
+            and cls._get_obs_size is Environment._get_obs_size):
+      warnings.warn(
+        f"{cls.__name__} overrides get_obs() but not _get_obs_size(). "
+        "If the observation size changes, override _get_obs_size() to match, "
+        "otherwise observation_space will have the wrong shape.",
+        UserWarning,
+        stacklevel=2,
+      )
+
   def __init__(
     self,
     effector,
@@ -118,11 +131,27 @@ class Environment(gym.Env, torch.nn.Module):
     """
     return x.cpu().detach().numpy() if torch.is_tensor(x) else x
 
+  def _get_obs_size(self) -> int:
+    """Returns the number of features in the observation vector.
+
+    Override this method whenever :meth:`get_obs`, :meth:`get_proprioception`, or :meth:`get_vision`
+    are overridden in a way that changes the observation size, so that :attr:`observation_space`
+    is built with the correct shape.
+
+    Returns:
+      An `integer` representing the number of features in the observation vector.
+    """
+    goal = self.skeleton.space_dim
+    vision = self.skeleton.space_dim
+    proprioception = 2 * self.effector.n_muscles
+    action = self.effector.n_muscles * self.action_frame_stacking
+    return goal + vision + proprioception + action
+
   def _build_spaces(self):
     self.action_space = gym.spaces.Box(low=0., high=1., shape=(self.effector.n_muscles,), dtype=np.float32)
 
-    obs, _ = self.reset(options={"deterministic": True})
-    self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(obs.shape[-1],), dtype=np.float32)
+    obs_size = self._get_obs_size()
+    self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(obs_size,), dtype=np.float32)
 
     def handle_noise_arg(noise, space):
       return [noise] * space.shape[0] if (type(noise) is float or int) else noise

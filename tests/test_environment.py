@@ -265,6 +265,102 @@ class TestEnvironmentProperties:
         assert 'name' in cfg
         assert 'effector' in cfg
 
+    def test_get_obs_size_matches_observation_space(self, base_env):
+        assert base_env._get_obs_size() == base_env.observation_space.shape[0]
+
+    def test_get_obs_size_formula_relu_point_mass(self):
+        # goal(2) + vision(2) + prop(4×2=8) + stacking(0) = 12
+        env = Environment(effector=ReluPointMass24())
+        assert env._get_obs_size() == 12
+
+    def test_get_obs_size_with_action_stacking(self):
+        env = Environment(effector=ReluPointMass24(), action_frame_stacking=3)
+        # 12 base + 4 muscles × 3 stacking = 24
+        assert env._get_obs_size() == 24
+
+    def test_obs_size_matches_actual_obs_after_reset(self):
+        env = Environment(effector=ReluPointMass24())
+        obs, _ = env.reset(options={"deterministic": True})
+        assert obs.shape[-1] == env._get_obs_size()
+
+    def test_init_does_not_call_reset(self):
+        """States should be None immediately after init — reset is no longer called in _build_spaces."""
+        env = Environment(effector=ReluPointMass24())
+        assert env.states["joint"] is None
+        assert env.goal is None
+        assert env.elapsed is None
+
+
+# =============================================================================
+# __init_subclass__ warning
+# =============================================================================
+
+class TestSubclassWarning:
+
+    def test_warns_when_get_obs_overridden_without_get_obs_size(self):
+        import warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            class BadEnv(Environment):
+                def get_obs(self, action=None, deterministic=False):
+                    return super().get_obs(action, deterministic)
+
+        assert len(w) == 1
+        assert issubclass(w[0].category, UserWarning)
+        assert "_get_obs_size" in str(w[0].message)
+
+    def test_no_warning_when_both_overridden(self):
+        import warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            class GoodEnv(Environment):
+                def get_obs(self, action=None, deterministic=False):
+                    return super().get_obs(action, deterministic)
+
+                def _get_obs_size(self):
+                    return super()._get_obs_size()
+
+        assert len(w) == 0
+
+    def test_no_warning_when_neither_overridden(self):
+        import warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            class PlainEnv(Environment):
+                pass
+
+        assert len(w) == 0
+
+    def test_no_warning_for_get_obs_size_only_override(self):
+        import warnings
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            class SizeOnlyEnv(Environment):
+                def _get_obs_size(self):
+                    return 42
+
+        assert len(w) == 0
+
+    def test_warning_fires_at_class_definition_not_instantiation(self):
+        """The warning should fire when the class body is executed, before any instance exists."""
+        import warnings
+        fired_during_definition = []
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
+            class EarlyWarnEnv(Environment):
+                def get_obs(self, action=None, deterministic=False):
+                    return super().get_obs(action, deterministic)
+
+            fired_during_definition.append(len(w))
+
+        assert fired_during_definition[0] == 1  # fired before any instance was created
+
 
 # =============================================================================
 # RandomTargetReach
