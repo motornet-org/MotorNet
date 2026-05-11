@@ -154,11 +154,20 @@ class Environment(gym.Env, torch.nn.Module):
   def get_obs(self, action: torch.Tensor | None = None, deterministic: bool = False) -> torch.Tensor | np.ndarray:
     """
     Returns a `(batch_size, n_features)` `tensor` containing the (potientially time-delayed) observations.
-    By default, this is the task goal, followed by the output of the :meth:`get_proprioception()` method, 
+    By default, this is the task goal, followed by the output of the :meth:`get_proprioception()` method,
     the output of the :meth:`get_vision()` method, and finally the last :attr:`action_frame_stacking` action sets,
     if a non-zero `action_frame_stacking` keyword argument was passed at initialization of this class instance.
     `.i.i.d.` Gaussian noise is added to each element in the `tensor`,
     using the :attr:`obs_noise` attribute.
+
+    Args:
+      action: `Tensor` or `None`, the action taken at the current step. Used to update the action frame buffer
+        when :attr:`action_frame_stacking` is non-zero. Default: `None`.
+      deterministic: `Boolean`, if `True`, observation noise is not applied. Default: `False`.
+
+    Returns:
+      The observation vector as `tensor` or `numpy.ndarray`, depending on whether the :class:`Environment`
+      is set as differentiable or not.
     """
     self.update_obs_buffer(action=action)
 

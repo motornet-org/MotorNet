@@ -16,7 +16,7 @@ class Effector(torch.nn.Module):
       muscle that will be added each time the :meth:`add_muscle` method is called.
     name: `String`, the name of the object instance.
     timestep: `Float`, size of a single timestep (in sec).
-    n_ministeps" `Integer`, number of integration ministeps per timestep. This assumes the action input is constant
+    n_ministeps: `Integer`, number of integration ministeps per timestep. This assumes the action input is constant
       across ministeps.
     integration_method: `String`, "euler" to specify that numerical integration should be done using the Euler
       method, or "rk4", "rungekutta4", "runge-kutta4", or "runge-kutta-4" to specify the Runge-Kutta 4 method
@@ -339,7 +339,7 @@ class Effector(torch.nn.Module):
     states as there are moments (that is, one per degree of freedom in the effector) plus two for musculotendon length
     and musculotendon velocity. However, note that how many states and what they represent may vary depending on
     the :class:`Effector` subclass. This should be available via the
-    :attr:`geometry_state_names` attribute.
+    :attr:`geometry_state_name` attribute.
 
     Args:
       joint_state: `Tensor`, the joint state from which the geometry state is computed.
@@ -525,9 +525,9 @@ class Effector(torch.nn.Module):
     """Creates a joint state `tensor` corresponding to the specified position, tiled `batch_size` times.
 
     Args:
+      batch_size: `Integer`, the desired batch size.
       position: The position to tile in the state `tensor`.
       velocity: The velocity to tile in the state `tensor`. If `None`, this will default to `0` (null velocity).
-      batch_size: `Integer`, the desired batch size.
 
     Returns:
       A `tensor` containing `batch_size` joint states.

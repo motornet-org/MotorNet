@@ -3,6 +3,15 @@ import torch.nn as nn
 
 
 class PolicyGRU(nn.Module):
+  """A single-layer GRU policy network with a sigmoid-activated linear readout.
+
+  Args:
+    input_dim: `Integer`, dimensionality of the input observation vector.
+    hidden_dim: `Integer`, number of hidden units in the GRU layer.
+    output_dim: `Integer`, dimensionality of the output (motor command) vector.
+    device: The device on which to place the network parameters.
+  """
+
   def __init__(self, input_dim: int, hidden_dim: int, output_dim: int, device):
     super().__init__()
     self.device = device
@@ -33,11 +42,29 @@ class PolicyGRU(nn.Module):
     self.to(device)
 
   def forward(self, x: torch.Tensor, h0: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Performs one step of the GRU and returns the motor command and updated hidden state.
+
+    Args:
+      x: `Tensor`, the input observation vector with shape `(batch_size, input_dim)`.
+      h0: `Tensor`, the initial hidden state with shape `(n_layers, batch_size, hidden_dim)`.
+
+    Returns:
+      - The motor command `tensor` with shape `(batch_size, output_dim)`, passed through a sigmoid.
+      - The updated hidden state `tensor` with shape `(n_layers, batch_size, hidden_dim)`.
+    """
     y, h = self.gru(x[:, None, :], h0)
     u = self.sigmoid(self.fc(y)).squeeze(dim=1)
     return u, h
 
   def init_hidden(self, batch_size: int) -> torch.Tensor:
+    """Creates a zero-initialized hidden state tensor on the correct device.
+
+    Args:
+      batch_size: `Integer`, the number of parallel sequences in the batch.
+
+    Returns:
+      A zero `tensor` with shape `(n_layers, batch_size, hidden_dim)`.
+    """
     weight = next(self.parameters()).data
     hidden = weight.new(self.n_layers, batch_size, self.hidden_dim).zero_().to(self.device)
     return hidden

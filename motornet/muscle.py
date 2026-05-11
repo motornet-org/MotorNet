@@ -156,10 +156,9 @@ class Muscle(torch.nn.Module):
       [2] https://mujoco.readthedocs.io/en/stable/modeling.html#muscle-actuators
 
     Args:
-      excitation: `Float` or `list` of `float`, the descending excitation drive to the muscle(s). If several
-        muscles are declared in the parent effector object, then this should be a `list` containing as many
-        elements as there are muscles in that parent effector object.
-      muscle_state: `Tensor`, the `muscle state` that provides the initial activation value for the Ordinary
+      action: `Tensor`, the descending excitation drive to the muscle(s). Dimensionality should match
+        the number of muscles in the parent effector object.
+      activation: `Tensor`, the current activation value that serves as the initial value for the Ordinary
         Differential Equation.
 
     Returns:
