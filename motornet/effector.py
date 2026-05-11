@@ -141,6 +141,13 @@ class Effector(torch.nn.Module):
     self.states = {key: None for key in ["joint", "cartesian", "muscle", "geometry", "fingertip"]}
 
   def step(self, action: torch.Tensor | np.ndarray, **kwargs) -> None:
+    """Advances the effector by one timestep.
+
+    Args:
+      action: `Tensor` or `numpy.ndarray`, the motor command input to the muscles.
+      **kwargs: Optional keyword arguments passed to :meth:`integrate`. Useful for passing `endpoint_load`
+        or `joint_load` tensors.
+    """
     endpoint_load = kwargs.get('endpoint_load', self.default_endpoint_load)
     joint_load = kwargs.get('joint_load', self.default_joint_load)
 
@@ -193,7 +200,7 @@ class Effector(torch.nn.Module):
     """Returns the environment's internal :attr:`_np_random` that if not set will initialise with a random seed.
 
     Returns:
-      Instances of `np.random.Generator`
+      Instance of `np.random.Generator`
     """
     if self._np_random is None:
       self._np_random, _ = seeding.np_random()
@@ -585,9 +592,8 @@ class Effector(torch.nn.Module):
     Returns:
       A `dictionary` containing the skeleton and muscle configurations as nested `dictionary` objects, and
       parameters of the effector's configuration. Specifically, the size of the timestep (sec), the name
-      of each muscle added via the :meth:`add_muscle` method, the number of muscles, the visual and 
-      proprioceptive delay, the standard deviation of the excitation noise, and the muscle wrapping configuration
-      as returned by :meth:`get_muscle_cfg`.
+      of each muscle added via the :meth:`add_muscle` method, the number of muscles, and the muscle wrapping
+      configuration as returned by :meth:`get_muscle_cfg`.
     """
     muscle_cfg = self.muscle.get_save_config()
     skeleton_cfg = self.skeleton.get_save_config()
@@ -650,7 +656,7 @@ class ReluPointMass24(Effector):
 
   Args:
     timestep: `Float`, size of a single timestep (in sec).
-    max_isometic_force: `Float`, the maximum force (N) that each muscle can produce.
+    max_isometric_force: `Float`, the maximum force (N) that each muscle can produce.
     mass: `Float`, the mass (kg) of the point-mass.
     **kwargs: The `kwargs` inputs are passed as-is to the parent :class:`motornet.Effector` class.
   """
@@ -707,8 +713,8 @@ class RigidTendonArm26(Effector):
       skeleton that the muscles will wrap around. See above for details on what this argument defaults to if no
       argument is passed.
     timestep: `Float`, size of a single timestep (in sec).
-    muscle_kwargs: `Dictionary`, contains the muscle parameters to be passed to the 
-      :meth:`motornet.muscle.Muscle.build() method.`
+    muscle_kwargs: `Dictionary`, contains the muscle parameters to be passed to the
+      :meth:`motornet.muscle.Muscle.build` method.
     **kwargs: All contents are passed to the parent :class:`Effector` class. Also allows for some backward
       compatibility.
   """

@@ -153,7 +153,8 @@ class Muscle(torch.nn.Module):
     References:
       [1] `Thelen DG. Adjustment of muscle mechanics model parameters to simulate dynamic contractions in older
       adults. J Biomech Eng. 2003 Feb;125(1):70-7. doi: 10.1115/1.1531112. PMID: 12661198.`
-      [2] https://mujoco.readthedocs.io/en/stable/modeling.html#muscle-actuators
+      [2] `MuJoCo documentation: muscle actuators.
+      https://mujoco.readthedocs.io/en/stable/modeling.html#muscle-actuators`
 
     Args:
       action: `Tensor`, the descending excitation drive to the muscle(s). Dimensionality should match
@@ -184,7 +185,7 @@ class Muscle(torch.nn.Module):
     for any muscle objects or subclasses.
 
     Returns:
-       - A `dictionary` containing the muscle object's name and state names.
+      A `dictionary` containing the muscle object's name and state names.
     """
     cfg = {'name': str(self.__name__), 'state names': self.state_name}
     return cfg
@@ -233,8 +234,8 @@ class ReluMuscle(Muscle):
 
 
 class MujocoHillMuscle(Muscle):
-  """This pre-built muscle class is an implementation of a Hill-type muscle model as detailed in the MuJoCo 
-  documentation`[1]`. It is a rigid tendon Hill-type model.
+  """This pre-built muscle class is an implementation of a Hill-type muscle model as detailed in the MuJoCo
+  documentation [1]. It is a rigid tendon Hill-type model.
 
   References:
     [1] https://mujoco.readthedocs.io/en/stable/modeling.html#muscle-actuators
@@ -324,7 +325,7 @@ class MujocoHillMuscle(Muscle):
         several muscles are declared in the parent effector object, then this should be a list containing as
         many elements as there are muscles in that parent effector object.
       normalized_slack_muscle_length: `Float` or `list` of `float`, the muscle length (m) past which the
-        muscle(s) will start to developp passive forces. If several muscles are declared in the parent effector
+        muscle(s) will start to develop passive forces. If several muscles are declared in the parent effector
         object, then this should be a list containing as many elements as there are muscles in that parent
         effector object.
       lmin: `Float`, lower bound on the operating range of the muscle length (normalized by its optimal length).
@@ -540,7 +541,7 @@ class RigidTendonHillMuscle(Muscle):
         several muscles are declared in the parent effector object, then this should be a list containing as 
         many elements as there are muscles in that parent effector object.
       normalized_slack_muscle_length: `Float` or `list` of `float`, the muscle length (m) past which the
-        muscle(s) will start to developp passive forces. If several muscles are declared in the parent effector
+        muscle(s) will start to develop passive forces. If several muscles are declared in the parent effector
         object, then this should be a list containing as many elements as there are muscles in that parent 
         effector object.
     """
@@ -696,7 +697,7 @@ class RigidTendonHillMuscleThelen(Muscle):
         several muscles are declared in the parent effector object, then this should be a list containing as 
         many elements as there are muscles in that parent effector object.
       normalized_slack_muscle_length: `Float` or `list` of `float`, the muscle length (m) past which the
-        muscle(s) will start to developp passive forces. If several muscles are declared in the parent effector
+        muscle(s) will start to develop passive forces. If several muscles are declared in the parent effector
         object, then this should be a list containing as many elements as there are muscles in that parent 
         effector object.
     """

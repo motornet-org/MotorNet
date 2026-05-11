@@ -23,13 +23,10 @@ class Skeleton(torch.nn.Module):
     vel_lower_bound: `Float`, `list` or `tuple`, indicating the lower boundary of joint velocity. This should be
       a `n`-elements vector or list, with `n` the number of joints of the skeleton. For instance, for a two
       degrees-of-freedom arm, we would have `n=2`.
-
-  OPTIONAL ARGUMENTS
-    - **input_dim** -- `Integer`, dimensionality of the control input (*e.g.* torques). Default: takes the
-      same value as `dof`.
-    - **state_dim** -- `Integer`, typically position and velocity for each degree of freedom. Default: `2 * dof`.
-    - **output_dim** -- `Integer`, dimensionality of the :meth:`integrate` output, usually the new state.
-      Default: `state_dim`.
+    input_dim: `Integer`, dimensionality of the control input (*e.g.* torques). Default: same as `dof`.
+    state_dim: `Integer`, typically position and velocity for each degree of freedom. Default: `2 * dof`.
+    output_dim: `Integer`, dimensionality of the :meth:`integrate` output, usually the new state.
+      Default: same as `state_dim`.
   """
 
   def __init__(self, dof: int, space_dim: int, name: str = "skeleton",
@@ -85,7 +82,7 @@ class Skeleton(torch.nn.Module):
     :class:`motornet.effector.Effector` object class or subclass.
 
     Args:
-      timestep: Float, size of a single timestep (sec).
+      timestep: `Float`, size of a single timestep (sec).
       pos_upper_bound: `Float`, `list` or `tuple`, indicating the upper boundary of joint position. Should
         be a `n`-elements vector or list, with `n` the number of joints of the skeleton. For instance, for a two
         degrees-of-freedom arm, we would have `n=2`.
@@ -122,7 +119,7 @@ class Skeleton(torch.nn.Module):
 
     Args:
       path_coordinates: The coordinates of each muscle's fixation point. This is an attribute held by the wrapper
-        :class:`motornet.plants.plants.Plant` object class or subclass.
+        :class:`motornet.effector.Effector` object class or subclass.
       path_fixation_body: The body part (bone) to which each muscle fixation point is attached to. This is an
         attribute held by the wrapper :class:`motornet.plants.plants.Plant` object class or subclass.
       joint_state: `Tensor`, the current joint configuration.
@@ -146,7 +143,7 @@ class Skeleton(torch.nn.Module):
   
   def integrate(self, dt: float, state_derivative: torch.Tensor, joint_state: torch.Tensor) -> torch.Tensor:
     """Performs one integration step. This method is usually called by the
-    :meth:`motornet.effector.Effector.integration_step` uring numerical integration by the
+    :meth:`motornet.effector.Effector.integration_step` during numerical integration by the
     :class:`motornet.effector.Effector` wrapper class or subclass.
 
     Args:

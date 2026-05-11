@@ -12,10 +12,9 @@ class Environment(gym.Env, torch.nn.Module):
     effector: :class:`motornet.effector.Effector` object class or subclass. This is the effector that will evolve in
       the environment.
     q_init: `Tensor` or `numpy.ndarray`, the desired initial joint states for the environment, if a single set
-      of pre-defined initial joint states is desired. If `None`, the initial joint states will be drawn from the
-      :class:`motornet.nets.layers.Network.get_initial_state` method at each call of :meth:`generate`. This parameter
-      will be ignored on :meth:`generate` calls where a `joint_state` is provided as input
-      argument.
+      of pre-defined initial joint states is desired. If `None`, random initial joint states are drawn at each
+      call of :meth:`reset`. This parameter will be ignored on :meth:`reset` calls where a `joint_state` is
+      provided as an option.
     name: `String`, the name of the environment object instance.
     differentiable: `Boolean`, whether the environment will be differentiable or not. This will usually be useful for
       reinforcement learning, where the differentiability is not needed.
@@ -110,6 +109,14 @@ class Environment(gym.Env, torch.nn.Module):
     self._build_spaces()
 
   def detach(self, x: Any) -> Any:
+    """Converts a `tensor` to a `numpy.ndarray` on the CPU, or returns `x` unchanged if it is not a tensor.
+
+    Args:
+      x: The value to detach.
+
+    Returns:
+      A `numpy.ndarray` if `x` is a `tensor`, otherwise `x` unchanged.
+    """
     return x.cpu().detach().numpy() if torch.is_tensor(x) else x
   
   def _build_spaces(self):
@@ -130,8 +137,7 @@ class Environment(gym.Env, torch.nn.Module):
   # # # ========================================================================================
   # # # ========================================================================================
   def get_proprioception(self) -> torch.Tensor:
-    """
-    Returns a `(batch_size, n_features)` `tensor` containing the instantaneous (non-delayed) proprioceptive 
+    """Returns a `(batch_size, n_features)` `tensor` containing the instantaneous (non-delayed) proprioceptive
     feedback. By default, this is the normalized muscle length for each muscle, followed by the normalized
     muscle velocity for each muscle as well. `.i.i.d.` Gaussian noise is added to each element in the `tensor`,
     using the :attr:`proprioception_noise` attribute.
@@ -142,8 +148,7 @@ class Environment(gym.Env, torch.nn.Module):
     return self.apply_noise(prop, self.proprioception_noise)
 
   def get_vision(self) -> torch.Tensor:
-    """
-    Returns a `(batch_size, n_features)` `tensor` containing the instantaneous (non-delayed) visual 
+    """Returns a `(batch_size, n_features)` `tensor` containing the instantaneous (non-delayed) visual
     feedback. By default, this is the cartesian position of the end-point effector, that is, the fingertip.
     `.i.i.d.` Gaussian noise is added to each element in the `tensor`, using the
     :attr:`vision_noise` attribute.
@@ -152,8 +157,7 @@ class Environment(gym.Env, torch.nn.Module):
     return self.apply_noise(vis, self.vision_noise)
 
   def get_obs(self, action: torch.Tensor | None = None, deterministic: bool = False) -> torch.Tensor | np.ndarray:
-    """
-    Returns a `(batch_size, n_features)` `tensor` containing the (potientially time-delayed) observations.
+    """Returns a `(batch_size, n_features)` `tensor` containing the (potentially time-delayed) observations.
     By default, this is the task goal, followed by the output of the :meth:`get_proprioception()` method,
     the output of the :meth:`get_vision()` method, and finally the last :attr:`action_frame_stacking` action sets,
     if a non-zero `action_frame_stacking` keyword argument was passed at initialization of this class instance.
@@ -190,16 +194,15 @@ class Environment(gym.Env, torch.nn.Module):
       deterministic: bool = False,
       **kwargs,
     ) -> tuple[torch.Tensor | np.ndarray, np.ndarray | None, bool, bool, dict[str, Any]]:
-    """
-    Perform one simulation step. This method is likely to be overwritten by any subclass to implement user-defined 
-    computations, such as reward value calculation for reinforcement learning, custom truncation or termination
-    conditions, or time-varying goals.
-    
+    """Perform one simulation step. This method is likely to be overwritten by any subclass to implement
+    user-defined computations, such as reward value calculation for reinforcement learning, custom truncation
+    or termination conditions, or time-varying goals.
+
     Args:
       action: `Tensor` or `numpy.ndarray`, the input drive to the actuators.
       deterministic: `Boolean`, whether observation, action, proprioception, and vision noise are applied.
-      **kwargs: This is passed as-is to the :meth:`motornet.effector.Effector.step()` call. This is maily useful to pass
-      `endpoint_load` or `joint_load` kwargs.
+      **kwargs: Passed as-is to the :meth:`motornet.effector.Effector.step` call. Mainly useful to pass
+        `endpoint_load` or `joint_load` kwargs.
   
     Returns:
       - The observation vector as `tensor` or `numpy.ndarray`, if the :class:`Environment` is set as differentiable or 
@@ -239,11 +242,10 @@ class Environment(gym.Env, torch.nn.Module):
     return obs, reward, terminated, truncated, info
 
   def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[torch.Tensor | np.ndarray, dict[str, Any]]:
-    """
-    Initialize the task goal and :attr:`effector` states for a (batch of) simulation episode(s). The :attr:`effector`
-    states (joint, cartesian, muscle, geometry) are initialized to be biomechanically compatible with each other.
-    This method is likely to be overwritten by any subclass to implement user-defined computations, such as defining 
-    a custom initial goal or initial states.
+    """Initialize the task goal and :attr:`effector` states for a (batch of) simulation episode(s). The
+    :attr:`effector` states (joint, cartesian, muscle, geometry) are initialized to be biomechanically
+    compatible with each other. This method is likely to be overwritten by any subclass to implement
+    user-defined computations, such as defining a custom initial goal or initial states.
 
     Args:
       seed: `Integer`, the seed that is used to initialize the environment's PRNG (`np_random`).
@@ -312,6 +314,12 @@ class Environment(gym.Env, torch.nn.Module):
   # # # ========================================================================================
   # # # ========================================================================================
   def update_obs_buffer(self, action: torch.Tensor | None = None) -> None:
+    """Shifts each observation buffer by one step and appends the current observation.
+
+    Args:
+      action: `Tensor` or `None`, the most recent action, used to update the action frame buffer when
+        :attr:`action_frame_stacking` is non-zero. Default: `None`.
+    """
     self.obs_buffer["proprioception"] = self.obs_buffer["proprioception"][1:] + [self.get_proprioception()]
     self.obs_buffer["vision"] = self.obs_buffer["vision"][1:] + [self.get_vision()]
 
@@ -359,7 +367,7 @@ class Environment(gym.Env, torch.nn.Module):
     """Returns the environment's internal :attr:`_np_random` that if not set will initialise with a random seed.
 
     Returns:
-      Instances of `np.random.Generator`
+      Instance of `np.random.Generator`
     """
     return self.effector.np_random
 
@@ -456,15 +464,12 @@ class Environment(gym.Env, torch.nn.Module):
 
 
 class RandomTargetReach(Environment):
-  """A reach to a random target from a random starting position.
+  """A reach-to-target environment in which both the starting position and the target are drawn uniformly at
+  random from the reachable workspace at each episode reset.
 
   Args:
-    network: :class:`motornet.nets.layers.Network` object class or subclass. This is the network that will perform
-      the task.
-    name: `String`, the name of the task object instance.
-    deriv_weight: `Float`, the weight of the muscle activation's derivative contribution to the default muscle L2
-      loss.
-    **kwargs: This is passed as-is to the parent :class:`Task` class.
+    *args: Positional arguments passed as-is to the parent :class:`Environment` class.
+    **kwargs: Keyword arguments passed as-is to the parent :class:`Environment` class.
   """
 
   def __init__(self, *args, **kwargs):
@@ -472,10 +477,17 @@ class RandomTargetReach(Environment):
     self.obs_noise[:self.skeleton.space_dim] = [0.] * self.skeleton.space_dim  # target info is noiseless
 
   def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
-    """
-    Uses the :meth:`Environment.reset()` method of the parent class :class:`Environment` that can be overwritten to 
-    change the returned data. Here the goals (`i.e.`, the targets) are drawn from a random uniform distribution across
-    the full joint space.
+    """Overrides :meth:`Environment.reset` to draw a random fingertip target position as the goal, sampled
+    uniformly from the full reachable workspace.
+
+    Args:
+      seed: `Integer`, the seed that is used to initialize the environment's PRNG. See
+        :meth:`Environment.reset` for full details.
+      options: `Dictionary`, optional kwargs. Accepts the same keys as :meth:`Environment.reset`.
+
+    Returns:
+      - The observation vector as `tensor` or `numpy.ndarray`.
+      - A `dictionary` containing the initial step's information.
     """
     self._set_generator(seed=seed)
 
