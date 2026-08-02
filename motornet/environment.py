@@ -546,3 +546,69 @@ class RandomTargetReach(Environment):
       "goal": self.goal if self.differentiable else self.detach(self.goal),
       }
     return obs, info
+
+class CenterOutReach(Environment):
+    
+
+    def __init__(self, *args, reaching_distance, **kwargs):
+        self.n_targets = kwargs.pop('n_targets', 8)
+        self.reaching_distance = reaching_distance 
+        super().__init__(*args, **kwargs)
+
+        if self.q_init is None:
+            self.q_init = np.array(((self.effector.pos_upper_bound + self.effector.pos_lower_bound) / 2).reshape(1, -1))
+
+
+    def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
+
+        self._set_generator(seed=seed)
+
+        options = {} if options is None else options
+        batch_size: int = options.get('batch_size', 1)
+        joint_state: torch.Tensor | np.ndarray | None = options.get('joint_state', None)
+        direction_idx: int | np.ndarray | None = options.get('direction_idx', None) # this is hardcoded for now, later we can randomize if we want
+        deterministic: bool = options.get('deterministic', False)
+
+        if joint_state is not None:
+          joint_state_shape = np.shape(self.detach(joint_state))
+          if joint_state_shape[0] > 1:
+            batch_size = joint_state_shape[0]
+        else:
+          joint_state = self.q_init
+
+        if isinstance(direction_idx, np.ndarray) and direction_idx.shape[0] > 1:
+          batch_size = direction_idx.shape[0]
+
+        if direction_idx is None:
+            batch_directions = torch.tensor(self.np_random.integers(0, self.n_targets, (batch_size, 1))).to(self.device)
+        elif isinstance(direction_idx, np.ndarray):
+            batch_directions = torch.from_numpy(direction_idx).unsqueeze(1).to(self.device)
+        else:
+            batch_directions = torch.tensor([direction_idx]).expand(batch_size, 1).to(self.device)
+
+        self.effector.reset(options={"batch_size": batch_size, "joint_state": joint_state})
+        
+        angular_spacing = 2*torch.pi / self.n_targets
+        x = self.reaching_distance * torch.cos(batch_directions * angular_spacing)
+        y = self.reaching_distance* torch.sin(batch_directions * angular_spacing)
+        self.goal = self.states["fingertip"] + torch.concatenate([x, y], dim=1)
+
+        self.elapsed = 0.
+
+        action = torch.zeros((batch_size, self.action_space.shape[0])).to(self.device)
+
+        self.obs_buffer["proprioception"] = [self.get_proprioception()] * len(self.obs_buffer["proprioception"])
+        self.obs_buffer["vision"] = [self.get_vision()] * len(self.obs_buffer["vision"])
+        self.obs_buffer["action"] = [action] * self.action_frame_stacking
+
+        action = action if self.differentiable else self.detach(action)
+
+        obs = self.get_obs(deterministic=deterministic)
+        info = {
+          "states": self._maybe_detach_states(),
+          "direction_idx": batch_directions,
+          "action": action,
+          "noisy action": action,
+          "goal": self.goal if self.differentiable else self.detach(self.goal),
+          }
+        return obs, info
