@@ -556,7 +556,7 @@ class CenterOutReach(Environment):
         super().__init__(*args, **kwargs)
 
         if self.q_init is None:
-            self.q_init = np.array(((self.effector.pos_upper_bound + self.effector.pos_lower_bound) / 2).reshape(1, -1))
+            self.q_init = ((self.effector.pos_upper_bound + self.effector.pos_lower_bound) / 2).reshape(1, -1).detach().cpu().numpy()
 
 
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
