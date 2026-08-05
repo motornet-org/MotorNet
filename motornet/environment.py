@@ -600,15 +600,29 @@ class CenterOutReach(Environment):
     direction_idx: int | np.ndarray | None = options.get('direction_idx', None)
     deterministic: bool = options.get('deterministic', False)
 
+    joint_state_batch_size = None
     if joint_state is not None:
       joint_state_shape = np.shape(self.detach(joint_state))
       if joint_state_shape[0] > 1:
-        batch_size = joint_state_shape[0]
+        joint_state_batch_size = joint_state_shape[0]
+        batch_size = joint_state_batch_size
     else:
       joint_state = self.q_init
 
+    direction_idx_batch_size = None
     if isinstance(direction_idx, np.ndarray) and direction_idx.shape[0] > 1:
-      batch_size = direction_idx.shape[0]
+      direction_idx_batch_size = direction_idx.shape[0]
+      batch_size = direction_idx_batch_size
+
+    if (
+      joint_state_batch_size is not None
+      and direction_idx_batch_size is not None
+      and joint_state_batch_size != direction_idx_batch_size
+    ):
+      raise ValueError(
+        f"joint_state implies batch_size={joint_state_batch_size} but direction_idx implies "
+        f"batch_size={direction_idx_batch_size}; these must match."
+      )
 
     if direction_idx is None:
       batch_directions = torch.tensor(self.np_random.integers(0, self.n_targets, (batch_size, 1))).to(self.device)

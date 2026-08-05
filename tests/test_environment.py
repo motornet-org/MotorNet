@@ -456,6 +456,12 @@ class TestCenterOutReach:
         obs_b, _ = center_out_reach_env.reset(seed=42, options={"deterministic": True})
         assert torch.allclose(obs_a, obs_b)
 
+    def test_conflicting_joint_state_and_direction_idx_batch_sizes_raises(self, center_out_reach_env):
+        joint_state = np.tile(center_out_reach_env.q_init, (3, 1))
+        direction_idx = np.arange(5)
+        with pytest.raises(ValueError):
+            center_out_reach_env.reset(options={"joint_state": joint_state, "direction_idx": direction_idx})
+
     def test_k_n_directions(self, center_out_reach_env):
         k = 4
         directions = np.tile(np.arange(center_out_reach_env.n_targets), k)
