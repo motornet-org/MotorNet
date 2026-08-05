@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from motornet.effector import ReluPointMass24, RigidTendonArm26
-from motornet.environment import Environment, RandomTargetReach
+from motornet.environment import Environment, RandomTargetReach, CenterOutReach
 from motornet.muscle import RigidTendonHillMuscleThelen
 
 
@@ -429,6 +429,39 @@ class TestRandomTargetReach:
             assert not torch.isnan(obs).any(), "NaN in observation during episode"
             if terminated:
                 break
+
+# =============================================================================
+# CenterOutReach 
+# =============================================================================
+
+class TestCenterOutReach:
+
+    @pytest.fixture
+    def center_out_reach_env(self):
+        effector = RigidTendonArm26(muscle=RigidTendonHillMuscleThelen())
+        return CenterOutReach(reaching_distance=0.2, effector=effector)
+
+    def test_reset_returns_obs_and_info(self, center_out_reach_env):
+        obs, info = center_out_reach_env.reset(options={"deterministic": True})
+        assert obs is not None
+        assert isinstance(info, dict)
+
+    def test_goal_randomized_across_resets(self, center_out_reach_env):
+        _, info_a = center_out_reach_env.reset(seed=0, options={"deterministic": True})
+        _, info_b = center_out_reach_env.reset(seed=99, options={"deterministic": True})
+        assert not torch.allclose(info_a["goal"], info_b["goal"])
+
+    def test_seeded_reset_is_reproducible(self, center_out_reach_env):
+        obs_a, _ = center_out_reach_env.reset(seed=42, options={"deterministic": True})
+        obs_b, _ = center_out_reach_env.reset(seed=42, options={"deterministic": True})
+        assert torch.allclose(obs_a, obs_b)
+
+    def test_k_n_directions(self, center_out_reach_env):
+        k = 4
+        directions = np.tile(np.arange(center_out_reach_env.n_targets), k)
+        obs, info = center_out_reach_env.reset(options={"direction_idx": directions})
+        assert np.array_equal(info["direction_idx"].detach().cpu().numpy().squeeze(), directions)
+        assert len(obs) == len(directions)
 
 
 # =============================================================================

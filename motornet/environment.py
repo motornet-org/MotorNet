@@ -548,67 +548,98 @@ class RandomTargetReach(Environment):
     return obs, info
 
 class CenterOutReach(Environment):
-    
+  """A center-out reaching environment. On each :meth:`reset`, the effector starts from a fixed (or per-call)
+  joint state, and the goal is placed at a fixed cartesian distance from that starting position, along one of
+  `n_targets` evenly-spaced directions arranged in a ring around the start.
 
-    def __init__(self, *args, reaching_distance, **kwargs):
-        self.n_targets = kwargs.pop('n_targets', 8)
-        self.reaching_distance = reaching_distance 
-        super().__init__(*args, **kwargs)
+  Args:
+    *args: Positional arguments passed as-is to the parent :class:`Environment` class.
+    reaching_distance: `Float`, the cartesian distance between the starting position and the goal, the same for
+      every direction in the ring.
+    n_targets: `Integer`, the number of evenly-spaced directions in the ring. Default: `8`.
+    **kwargs: Keyword arguments passed as-is to the parent :class:`Environment` class. If `q_init` is not
+      provided among these, it defaults to the midpoint of the effector's `pos_lower_bound` and
+      `pos_upper_bound`.
+  """
 
-        if self.q_init is None:
-            self.q_init = ((self.effector.pos_upper_bound + self.effector.pos_lower_bound) / 2).reshape(1, -1).detach().cpu().numpy()
+  def __init__(self, *args, reaching_distance, **kwargs):
+    self.n_targets = kwargs.pop('n_targets', 8)
+    self.reaching_distance = reaching_distance
+    super().__init__(*args, **kwargs)
 
+    if self.q_init is None:
+      self.q_init = ((self.effector.pos_upper_bound + self.effector.pos_lower_bound) / 2).reshape(1, -1).detach().cpu().numpy()
 
-    def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
+  def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
+    """Overrides :meth:`Environment.reset` to place the goal at `reaching_distance` from the starting fingertip
+    position, along one of `n_targets` evenly-spaced ring directions.
 
-        self._set_generator(seed=seed)
+    Args:
+      seed: `Integer`, the seed that is used to initialize the environment's PRNG. See
+        :meth:`Environment.reset` for full details.
+      options: `Dictionary`, optional kwargs. Accepts the same keys as :meth:`Environment.reset`, plus
+        `direction_idx` described below.
 
-        options = {} if options is None else options
-        batch_size: int = options.get('batch_size', 1)
-        joint_state: torch.Tensor | np.ndarray | None = options.get('joint_state', None)
-        direction_idx: int | np.ndarray | None = options.get('direction_idx', None) # this is hardcoded for now, later we can randomize if we want
-        deterministic: bool = options.get('deterministic', False)
+    Options:
+      - **direction_idx**: `Integer` or `numpy.ndarray`, the ring direction(s) to reach towards, expressed as
+        index/indices into the `n_targets` evenly-spaced directions. If `None` (the default), a direction is
+        drawn uniformly at random per batch element via :attr:`np_random`. If a single `Integer`, that same
+        direction is used for every batch element. If a `numpy.ndarray`, its length determines the batch size
+        (overriding `batch_size`) and each element is used as-is, in order, for the corresponding batch element.
 
-        if joint_state is not None:
-          joint_state_shape = np.shape(self.detach(joint_state))
-          if joint_state_shape[0] > 1:
-            batch_size = joint_state_shape[0]
-        else:
-          joint_state = self.q_init
+    Returns:
+      - The observation vector as `tensor` or `numpy.ndarray`.
+      - A `dictionary` containing the initial step's information, with an additional `direction_idx` key
+        holding the direction index actually used for each batch element.
+    """
+    self._set_generator(seed=seed)
 
-        if isinstance(direction_idx, np.ndarray) and direction_idx.shape[0] > 1:
-          batch_size = direction_idx.shape[0]
+    options = {} if options is None else options
+    batch_size: int = options.get('batch_size', 1)
+    joint_state: torch.Tensor | np.ndarray | None = options.get('joint_state', None)
+    direction_idx: int | np.ndarray | None = options.get('direction_idx', None)
+    deterministic: bool = options.get('deterministic', False)
 
-        if direction_idx is None:
-            batch_directions = torch.tensor(self.np_random.integers(0, self.n_targets, (batch_size, 1))).to(self.device)
-        elif isinstance(direction_idx, np.ndarray):
-            batch_directions = torch.from_numpy(direction_idx).unsqueeze(1).to(self.device)
-        else:
-            batch_directions = torch.tensor([direction_idx]).expand(batch_size, 1).to(self.device)
+    if joint_state is not None:
+      joint_state_shape = np.shape(self.detach(joint_state))
+      if joint_state_shape[0] > 1:
+        batch_size = joint_state_shape[0]
+    else:
+      joint_state = self.q_init
 
-        self.effector.reset(options={"batch_size": batch_size, "joint_state": joint_state})
-        
-        angular_spacing = 2*torch.pi / self.n_targets
-        x = self.reaching_distance * torch.cos(batch_directions * angular_spacing)
-        y = self.reaching_distance* torch.sin(batch_directions * angular_spacing)
-        self.goal = self.states["fingertip"] + torch.concatenate([x, y], dim=1)
+    if isinstance(direction_idx, np.ndarray) and direction_idx.shape[0] > 1:
+      batch_size = direction_idx.shape[0]
 
-        self.elapsed = 0.
+    if direction_idx is None:
+      batch_directions = torch.tensor(self.np_random.integers(0, self.n_targets, (batch_size, 1))).to(self.device)
+    elif isinstance(direction_idx, np.ndarray):
+      batch_directions = torch.from_numpy(direction_idx).unsqueeze(1).to(self.device)
+    else:
+      batch_directions = torch.tensor([direction_idx]).expand(batch_size, 1).to(self.device)
 
-        action = torch.zeros((batch_size, self.action_space.shape[0])).to(self.device)
+    self.effector.reset(options={"batch_size": batch_size, "joint_state": joint_state})
 
-        self.obs_buffer["proprioception"] = [self.get_proprioception()] * len(self.obs_buffer["proprioception"])
-        self.obs_buffer["vision"] = [self.get_vision()] * len(self.obs_buffer["vision"])
-        self.obs_buffer["action"] = [action] * self.action_frame_stacking
+    angular_spacing = 2 * torch.pi / self.n_targets
+    x = self.reaching_distance * torch.cos(batch_directions * angular_spacing)
+    y = self.reaching_distance * torch.sin(batch_directions * angular_spacing)
+    self.goal = self.states["fingertip"] + torch.concatenate([x, y], dim=1)
 
-        action = action if self.differentiable else self.detach(action)
+    self.elapsed = 0.
 
-        obs = self.get_obs(deterministic=deterministic)
-        info = {
-          "states": self._maybe_detach_states(),
-          "direction_idx": batch_directions,
-          "action": action,
-          "noisy action": action,
-          "goal": self.goal if self.differentiable else self.detach(self.goal),
-          }
-        return obs, info
+    action = torch.zeros((batch_size, self.action_space.shape[0])).to(self.device)
+
+    self.obs_buffer["proprioception"] = [self.get_proprioception()] * len(self.obs_buffer["proprioception"])
+    self.obs_buffer["vision"] = [self.get_vision()] * len(self.obs_buffer["vision"])
+    self.obs_buffer["action"] = [action] * self.action_frame_stacking
+
+    action = action if self.differentiable else self.detach(action)
+
+    obs = self.get_obs(deterministic=deterministic)
+    info = {
+      "states": self._maybe_detach_states(),
+      "direction_idx": batch_directions,
+      "action": action,
+      "noisy action": action,
+      "goal": self.goal if self.differentiable else self.detach(self.goal),
+      }
+    return obs, info
