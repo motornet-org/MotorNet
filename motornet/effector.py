@@ -184,7 +184,7 @@ class Effector(torch.nn.Module):
     joint_state: torch.Tensor | np.ndarray | None = options.get('joint_state', None)
 
     if joint_state is not None:
-      joint_state_shape = np.shape(joint_state.cpu().detach().numpy())
+      joint_state_shape = np.shape(joint_state.cpu().detach().numpy() if torch.is_tensor(joint_state) else np.array(joint_state))
       if joint_state_shape[0] > 1:
         batch_size = joint_state_shape[0]
 
@@ -525,7 +525,7 @@ class Effector(torch.nn.Module):
     if joint_state is None:
       joint0 = self.draw_random_uniform_states(batch_size=batch_size)
     else:
-      joint_state_shape = np.shape(joint_state.cpu().detach().numpy())
+      joint_state_shape = np.shape(joint_state.cpu().detach().numpy() if torch.is_tensor(joint_state) else np.array(joint_state))
       if joint_state_shape[0] > 1:
         batch_size = 1
       n_state = joint_state.shape[1]
