@@ -36,7 +36,7 @@ class Muscle(torch.nn.Module):
 
     super().__init__()
 
-    self._device = torch.device('cpu')
+    self.register_buffer('_device_marker', torch.empty(0), persistent=False)
     self.input_dim = input_dim
     self.state_name = []
     self.output_dim = output_dim
@@ -57,18 +57,9 @@ class Muscle(torch.nn.Module):
   def clip_activation(self, a: torch.Tensor) -> torch.Tensor:
     return torch.clamp(a, self.min_activation, 1.)
 
-  def to(self, *args, **kwargs):
-    if args and isinstance(args[0], (str, torch.device)):
-      self._device = torch.device(args[0])
-    elif args and isinstance(args[0], torch.Tensor):
-      self._device = args[0].device
-    elif 'device' in kwargs:
-      self._device = torch.device(kwargs['device'])
-    return super().to(*args, **kwargs)
-
   @property
   def device(self) -> torch.device:
-    return self._device
+    return self._device_marker.device
 
   def build(self, timestep: float, max_isometric_force: float | list, **kwargs) -> None:
     """Build the muscle given parameters from the ``motornet.effector.Effector`` wrapper object. This should be

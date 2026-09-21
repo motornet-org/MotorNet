@@ -66,9 +66,8 @@ class Environment(gym.Env, torch.nn.Module):
 
     super().__init__(**kwargs)
 
-    self._device = torch.device('cpu')
     self.__name__ = name
-    self.effector = effector.to(self.device)
+    self.effector = effector
     self.dt = self.effector.dt
     self.differentiable = differentiable
     self.max_ep_duration = max_ep_duration
@@ -481,18 +480,9 @@ class Environment(gym.Env, torch.nn.Module):
     cfg["effector"] = self.effector.get_save_config()
     return cfg
 
-  def to(self, *args, **kwargs):
-    if args and isinstance(args[0], (str, torch.device)):
-      self._device = torch.device(args[0])
-    elif args and isinstance(args[0], torch.Tensor):
-      self._device = args[0].device
-    elif 'device' in kwargs:
-      self._device = torch.device(kwargs['device'])
-    return super().to(*args, **kwargs)
-
   @property
   def device(self) -> torch.device:
-    return self._device
+    return self.effector.device
 
 
 class RandomTargetReach(Environment):

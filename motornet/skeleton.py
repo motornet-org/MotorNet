@@ -38,7 +38,7 @@ class Skeleton(torch.nn.Module):
 
     super().__init__()
 
-    self._device = torch.device('cpu')
+    self.register_buffer('_device_marker', torch.empty(0), persistent=False)
     self.__name__ = name
     self.dof = dof
     self.space_dim = space_dim
@@ -247,18 +247,9 @@ class Skeleton(torch.nn.Module):
     """
     self.__setattr__(name, value)
 
-  def to(self, *args, **kwargs):
-    if args and isinstance(args[0], (str, torch.device)):
-      self._device = torch.device(args[0])
-    elif args and isinstance(args[0], torch.Tensor):
-      self._device = args[0].device
-    elif 'device' in kwargs:
-      self._device = torch.device(kwargs['device'])
-    return super().to(*args, **kwargs)
-
   @property
   def device(self) -> torch.device:
-    return self._device
+    return self._device_marker.device
 
 
 class PointMass(Skeleton):
