@@ -555,17 +555,20 @@ class CenterOutReach(Environment):
   Args:
     *args: Positional arguments passed as-is to the parent :class:`Environment` class.
     reaching_distance: `Float`, the cartesian distance between the starting position and the goal, the same for
-      every direction in the ring.
+      every direction in the ring. Targets are not checked against the effector's workspace, so large values
+      can place some of them out of reach (e.g. above `0.1` for :class:`RigidTendonArm26` from its default
+      start). Default: `0.1`.
     n_targets: `Integer`, the number of evenly-spaced directions in the ring. Default: `8`.
     **kwargs: Keyword arguments passed as-is to the parent :class:`Environment` class. If `q_init` is not
       provided among these, it defaults to the midpoint of the effector's `pos_lower_bound` and
       `pos_upper_bound`.
   """
 
-  def __init__(self, *args, reaching_distance, **kwargs):
-    self.n_targets = kwargs.pop('n_targets', 8)
+  def __init__(self, *args, reaching_distance: float = 0.1, n_targets: int = 8, **kwargs):
+    self.n_targets = n_targets
     self.reaching_distance = reaching_distance
     super().__init__(*args, **kwargs)
+    self.obs_noise[:self.skeleton.space_dim] = [0.] * self.skeleton.space_dim  # target info is noiseless
 
     if self.q_init is None:
       self.q_init = ((self.effector.pos_upper_bound + self.effector.pos_lower_bound) / 2).reshape(1, -1).detach().cpu().numpy()
@@ -581,11 +584,11 @@ class CenterOutReach(Environment):
         `direction_idx` described below.
 
     Options:
-      - **direction_idx**: `Integer` or `numpy.ndarray`, the ring direction(s) to reach towards, expressed as
-        index/indices into the `n_targets` evenly-spaced directions. If `None` (the default), a direction is
-        drawn uniformly at random per batch element via :attr:`np_random`. If a single `Integer`, that same
-        direction is used for every batch element. If a `numpy.ndarray`, its length determines the batch size
-        (overriding `batch_size`) and each element is used as-is, in order, for the corresponding batch element.
+      - **direction_idx**: `Integer`, `list`, `numpy.ndarray` or `tensor`, the ring direction(s) to reach towards,
+        as indices in `[0, n_targets)`. Direction `0` points along +x and indices increase counter-clockwise.
+        If `None` (the default), a direction is drawn uniformly at random per batch element via
+        :attr:`np_random`. A single value is used for every batch element. Several values set the batch size
+        (overriding `batch_size`) and are used in order, one per batch element.
 
     Returns:
       - The observation vector as `tensor` or `numpy.ndarray`.
@@ -610,9 +613,16 @@ class CenterOutReach(Environment):
       joint_state = self.q_init
 
     direction_idx_batch_size = None
-    if isinstance(direction_idx, np.ndarray) and direction_idx.shape[0] > 1:
-      direction_idx_batch_size = direction_idx.shape[0]
-      batch_size = direction_idx_batch_size
+    if direction_idx is not None:
+      # accept an int, list, numpy array or tensor; flatten to a 1D integer array
+      direction_idx = np.asarray(self.detach(direction_idx)).reshape(-1)
+      if direction_idx.size == 0 or not np.issubdtype(direction_idx.dtype, np.integer):
+        raise TypeError(f"direction_idx must contain integers, got {direction_idx!r}.")
+      if np.any((direction_idx < 0) | (direction_idx >= self.n_targets)):
+        raise ValueError(f"direction_idx values must be in [0, {self.n_targets}), got {direction_idx}.")
+      if direction_idx.size > 1:
+        direction_idx_batch_size = direction_idx.size
+        batch_size = direction_idx_batch_size
 
     if (
       joint_state_batch_size is not None
@@ -625,11 +635,10 @@ class CenterOutReach(Environment):
       )
 
     if direction_idx is None:
-      batch_directions = torch.tensor(self.np_random.integers(0, self.n_targets, (batch_size, 1))).to(self.device)
-    elif isinstance(direction_idx, np.ndarray):
-      batch_directions = torch.from_numpy(direction_idx).unsqueeze(1).to(self.device)
-    else:
-      batch_directions = torch.tensor([direction_idx]).expand(batch_size, 1).to(self.device)
+      direction_idx = self.np_random.integers(0, self.n_targets, batch_size)
+    elif direction_idx.size == 1:
+      direction_idx = np.repeat(direction_idx, batch_size)
+    batch_directions = torch.as_tensor(direction_idx, device=self.device).unsqueeze(1)
 
     self.effector.reset(options={"batch_size": batch_size, "joint_state": joint_state})
 
@@ -651,7 +660,7 @@ class CenterOutReach(Environment):
     obs = self.get_obs(deterministic=deterministic)
     info = {
       "states": self._maybe_detach_states(),
-      "direction_idx": batch_directions,
+      "direction_idx": batch_directions if self.differentiable else self.detach(batch_directions),
       "action": action,
       "noisy action": action,
       "goal": self.goal if self.differentiable else self.detach(self.goal),
