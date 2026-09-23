@@ -546,3 +546,123 @@ class RandomTargetReach(Environment):
       "goal": self.goal if self.differentiable else self.detach(self.goal),
       }
     return obs, info
+
+class CenterOutReach(Environment):
+  """A center-out reaching environment. On each :meth:`reset`, the effector starts from a fixed (or per-call)
+  joint state, and the goal is placed at a fixed cartesian distance from that starting position, along one of
+  `n_targets` evenly-spaced directions arranged in a ring around the start.
+
+  Args:
+    *args: Positional arguments passed as-is to the parent :class:`Environment` class.
+    reaching_distance: `Float`, the cartesian distance between the starting position and the goal, the same for
+      every direction in the ring. Targets are not checked against the effector's workspace, so large values
+      can place some of them out of reach (e.g. above `0.1` for :class:`RigidTendonArm26` from its default
+      start). Default: `0.1`.
+    n_targets: `Integer`, the number of evenly-spaced directions in the ring. Default: `8`.
+    **kwargs: Keyword arguments passed as-is to the parent :class:`Environment` class. If `q_init` is not
+      provided among these, it defaults to the midpoint of the effector's `pos_lower_bound` and
+      `pos_upper_bound`.
+  """
+
+  def __init__(self, *args, reaching_distance: float = 0.1, n_targets: int = 8, **kwargs):
+    self.n_targets = n_targets
+    self.reaching_distance = reaching_distance
+    super().__init__(*args, **kwargs)
+    self.obs_noise[:self.skeleton.space_dim] = [0.] * self.skeleton.space_dim  # target info is noiseless
+
+    if self.q_init is None:
+      self.q_init = ((self.effector.pos_upper_bound + self.effector.pos_lower_bound) / 2).reshape(1, -1).detach().cpu().numpy()
+
+  def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
+    """Overrides :meth:`Environment.reset` to place the goal at `reaching_distance` from the starting fingertip
+    position, along one of `n_targets` evenly-spaced ring directions.
+
+    Args:
+      seed: `Integer`, the seed that is used to initialize the environment's PRNG. See
+        :meth:`Environment.reset` for full details.
+      options: `Dictionary`, optional kwargs. Accepts the same keys as :meth:`Environment.reset`, plus
+        `direction_idx` described below.
+
+    Options:
+      - **direction_idx**: `Integer`, `list`, `numpy.ndarray` or `tensor`, the ring direction(s) to reach towards,
+        as indices in `[0, n_targets)`. Direction `0` points along +x and indices increase counter-clockwise.
+        If `None` (the default), a direction is drawn uniformly at random per batch element via
+        :attr:`np_random`. A single value is used for every batch element. Several values set the batch size
+        (overriding `batch_size`) and are used in order, one per batch element.
+
+    Returns:
+      - The observation vector as `tensor` or `numpy.ndarray`.
+      - A `dictionary` containing the initial step's information, with an additional `direction_idx` key
+        holding the direction index actually used for each batch element.
+    """
+    self._set_generator(seed=seed)
+
+    options = {} if options is None else options
+    batch_size: int = options.get('batch_size', 1)
+    joint_state: torch.Tensor | np.ndarray | None = options.get('joint_state', None)
+    direction_idx: int | np.ndarray | None = options.get('direction_idx', None)
+    deterministic: bool = options.get('deterministic', False)
+
+    joint_state_batch_size = None
+    if joint_state is not None:
+      joint_state_shape = np.shape(self.detach(joint_state))
+      if joint_state_shape[0] > 1:
+        joint_state_batch_size = joint_state_shape[0]
+        batch_size = joint_state_batch_size
+    else:
+      joint_state = self.q_init
+
+    direction_idx_batch_size = None
+    if direction_idx is not None:
+      # accept an int, list, numpy array or tensor; flatten to a 1D integer array
+      direction_idx = np.asarray(self.detach(direction_idx)).reshape(-1)
+      if direction_idx.size == 0 or not np.issubdtype(direction_idx.dtype, np.integer):
+        raise TypeError(f"direction_idx must contain integers, got {direction_idx!r}.")
+      if np.any((direction_idx < 0) | (direction_idx >= self.n_targets)):
+        raise ValueError(f"direction_idx values must be in [0, {self.n_targets}), got {direction_idx}.")
+      if direction_idx.size > 1:
+        direction_idx_batch_size = direction_idx.size
+        batch_size = direction_idx_batch_size
+
+    if (
+      joint_state_batch_size is not None
+      and direction_idx_batch_size is not None
+      and joint_state_batch_size != direction_idx_batch_size
+    ):
+      raise ValueError(
+        f"joint_state implies batch_size={joint_state_batch_size} but direction_idx implies "
+        f"batch_size={direction_idx_batch_size}; these must match."
+      )
+
+    if direction_idx is None:
+      direction_idx = self.np_random.integers(0, self.n_targets, batch_size)
+    elif direction_idx.size == 1:
+      direction_idx = np.repeat(direction_idx, batch_size)
+    batch_directions = torch.as_tensor(direction_idx, device=self.device).unsqueeze(1)
+
+    self.effector.reset(options={"batch_size": batch_size, "joint_state": joint_state})
+
+    angular_spacing = 2 * torch.pi / self.n_targets
+    x = self.reaching_distance * torch.cos(batch_directions * angular_spacing)
+    y = self.reaching_distance * torch.sin(batch_directions * angular_spacing)
+    self.goal = self.states["fingertip"] + torch.concatenate([x, y], dim=1)
+
+    self.elapsed = 0.
+
+    action = torch.zeros((batch_size, self.action_space.shape[0])).to(self.device)
+
+    self.obs_buffer["proprioception"] = [self.get_proprioception()] * len(self.obs_buffer["proprioception"])
+    self.obs_buffer["vision"] = [self.get_vision()] * len(self.obs_buffer["vision"])
+    self.obs_buffer["action"] = [action] * self.action_frame_stacking
+
+    action = action if self.differentiable else self.detach(action)
+
+    obs = self.get_obs(deterministic=deterministic)
+    info = {
+      "states": self._maybe_detach_states(),
+      "direction_idx": batch_directions if self.differentiable else self.detach(batch_directions),
+      "action": action,
+      "noisy action": action,
+      "goal": self.goal if self.differentiable else self.detach(self.goal),
+      }
+    return obs, info

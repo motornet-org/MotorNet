@@ -1,11 +1,11 @@
-"""Tests for motornet.environment — Environment base class and RandomTargetReach."""
+"""Tests for motornet.environment — Environment base class, RandomTargetReach and CenterOutReach."""
 
 import numpy as np
 import pytest
 import torch
 
 from motornet.effector import ReluPointMass24, RigidTendonArm26
-from motornet.environment import Environment, RandomTargetReach
+from motornet.environment import Environment, RandomTargetReach, CenterOutReach
 from motornet.muscle import RigidTendonHillMuscleThelen
 
 
@@ -429,6 +429,106 @@ class TestRandomTargetReach:
             assert not torch.isnan(obs).any(), "NaN in observation during episode"
             if terminated:
                 break
+
+# =============================================================================
+# CenterOutReach
+# =============================================================================
+
+class TestCenterOutReach:
+
+    @pytest.fixture
+    def center_out_reach_env(self):
+        effector = RigidTendonArm26(muscle=RigidTendonHillMuscleThelen())
+        return CenterOutReach(effector=effector)
+
+    def test_reset_returns_obs_and_info(self, center_out_reach_env):
+        obs, info = center_out_reach_env.reset(options={"deterministic": True})
+        assert obs is not None
+        assert isinstance(info, dict)
+
+    def test_random_directions_cover_ring(self, center_out_reach_env):
+        _, info = center_out_reach_env.reset(seed=0, options={"batch_size": 200})
+        drawn = set(info["direction_idx"].squeeze(1).tolist())
+        assert drawn == set(range(center_out_reach_env.n_targets))
+
+    @pytest.mark.parametrize("n_targets", [4, 8, 12])
+    @pytest.mark.parametrize("reaching_distance", [0.05, 0.1])
+    def test_goals_lie_on_ring_around_start(self, n_targets, reaching_distance):
+        effector = RigidTendonArm26(muscle=RigidTendonHillMuscleThelen())
+        env = CenterOutReach(effector=effector, reaching_distance=reaching_distance, n_targets=n_targets)
+        _, info = env.reset(options={"direction_idx": np.arange(n_targets)})
+
+        offset = info["goal"] - info["states"]["fingertip"]
+        angles = 2 * torch.pi * torch.arange(n_targets) / n_targets
+        expected = reaching_distance * torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
+        assert torch.allclose(offset, expected, atol=1e-6)
+
+    def test_default_ring_is_reachable(self, center_out_reach_env):
+        env = center_out_reach_env
+        _, info = env.reset(options={"direction_idx": np.arange(env.n_targets)})
+        goal = info["goal"]
+
+        # Two-link inverse kinematics with the shoulder at the origin. The arm's elbow limits are
+        # non-negative, so each reachable goal has exactly one solution.
+        l1, l2 = env.skeleton.l1, env.skeleton.l2
+        cos_elbow = (goal.pow(2).sum(dim=1) - l1 ** 2 - l2 ** 2) / (2 * l1 * l2)
+        assert torch.all(cos_elbow.abs() <= 1), "goal beyond the arm's full extension"
+        elbow = torch.arccos(cos_elbow)
+        shoulder = torch.atan2(goal[:, 1], goal[:, 0]) - torch.atan2(l2 * torch.sin(elbow), l1 + l2 * cos_elbow)
+
+        q = torch.stack([shoulder, elbow], dim=1)
+        assert torch.all(q >= env.effector.pos_lower_bound)
+        assert torch.all(q <= env.effector.pos_upper_bound)
+        fingertip = env.joint2cartesian(torch.cat([q, torch.zeros_like(q)], dim=1))[:, :2]
+        assert torch.allclose(fingertip, goal, atol=1e-5)
+
+    @pytest.mark.parametrize("direction_idx", [3, np.int64(3), np.array(3), np.array([3]), torch.tensor(3)])
+    def test_single_direction_is_broadcast_to_batch(self, center_out_reach_env, direction_idx):
+        obs, info = center_out_reach_env.reset(options={"direction_idx": direction_idx, "batch_size": 4})
+        assert obs.shape[0] == 4
+        assert info["direction_idx"].squeeze(1).tolist() == [3, 3, 3, 3]
+
+    @pytest.mark.parametrize("direction_idx", [[0, 1, 2], np.arange(3), torch.arange(3)])
+    def test_direction_sequence_sets_batch_size(self, center_out_reach_env, direction_idx):
+        obs, info = center_out_reach_env.reset(options={"direction_idx": direction_idx})
+        assert obs.shape[0] == 3
+        assert info["direction_idx"].squeeze(1).tolist() == [0, 1, 2]
+
+    @pytest.mark.parametrize("direction_idx, error", [(8, ValueError), (-1, ValueError), (2.0, TypeError)])
+    def test_invalid_direction_idx_raises(self, center_out_reach_env, direction_idx, error):
+        with pytest.raises(error):
+            center_out_reach_env.reset(options={"direction_idx": direction_idx})
+
+    def test_goal_obs_is_noiseless(self):
+        effector = RigidTendonArm26(muscle=RigidTendonHillMuscleThelen())
+        env = CenterOutReach(effector=effector, obs_noise=0.1)
+        obs, info = env.reset(options={"batch_size": 4})
+        assert torch.equal(obs[:, :env.space_dim], info["goal"])
+
+    def test_direction_idx_is_numpy_in_rl_mode(self):
+        effector = RigidTendonArm26(muscle=RigidTendonHillMuscleThelen())
+        env = CenterOutReach(effector=effector, differentiable=False)
+        _, info = env.reset(options={"batch_size": 3})
+        assert isinstance(info["direction_idx"], np.ndarray)
+        assert info["direction_idx"].shape == (3, 1)
+
+    def test_seeded_reset_is_reproducible(self, center_out_reach_env):
+        obs_a, _ = center_out_reach_env.reset(seed=42, options={"deterministic": True})
+        obs_b, _ = center_out_reach_env.reset(seed=42, options={"deterministic": True})
+        assert torch.allclose(obs_a, obs_b)
+
+    def test_conflicting_joint_state_and_direction_idx_batch_sizes_raises(self, center_out_reach_env):
+        joint_state = np.tile(center_out_reach_env.q_init, (3, 1))
+        direction_idx = np.arange(5)
+        with pytest.raises(ValueError):
+            center_out_reach_env.reset(options={"joint_state": joint_state, "direction_idx": direction_idx})
+
+    def test_k_n_directions(self, center_out_reach_env):
+        k = 4
+        directions = np.tile(np.arange(center_out_reach_env.n_targets), k)
+        obs, info = center_out_reach_env.reset(options={"direction_idx": directions})
+        assert np.array_equal(info["direction_idx"].detach().cpu().numpy().squeeze(), directions)
+        assert len(obs) == len(directions)
 
 
 # =============================================================================
